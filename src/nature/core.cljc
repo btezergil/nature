@@ -3,19 +3,6 @@
             [nature.population-operators :as po]
             [nature.monitors :as monitors]))
 
-(defn evolution-loop
-  "Evolution loop that is used commonly by sequence generator function and random generation from allele set."
-  [initial-population generations population-size binary-operators unary-operators options]
-  (let [solutions (max 1 (:solutions options))
-        carry-over (max 1 (:carry-over options))
-        monitors (:monitors options)]
-    (loop [population initial-population 
-           current-generation 0]
-      (when monitors (monitors/apply-monitors monitors population current-generation))
-      (if (>= current-generation generations)
-        (take solutions (sort-by :fitness-score #(> %1 %2) population))
-        (recur (po/advance-generation population population-size binary-operators unary-operators {:carry-over carry-over}) (inc current-generation))))))
-
 (defn evolve
   "Create and evolve a population under the specified conditions until a termination criteria is reached
   `allele-set` is a collection of legal genome values
@@ -37,17 +24,35 @@
    {:pre [(and (every? coll? [allele-set binary-operators unary-operators])
                (every? int? [genome-length population-size generations])
                (fn? fitness-function))]}
-   (evolution-loop (io/build-population population-size allele-set genome-length fitness-function) population-size generations binary-operators unary-operators options)))
+   (let [solutions (max 1 (:solutions options))
+         carry-over (max 1 (:carry-over options))
+         monitors (:monitors options)]
+     (loop [population (io/build-population population-size allele-set genome-length fitness-function)
+            current-generation 0]
+       (when monitors (monitors/apply-monitors monitors population current-generation))
+       (if (>= current-generation generations)
+         (take solutions (sort-by :fitness-score #(> %1 %2) population))
+         (recur (po/advance-generation population population-size binary-operators unary-operators {:carry-over carry-over}) (inc current-generation)))))))
 
 (defn evolve-with-sequence-generator
   "Same with evolve method, but takes a sequence generator function instead of an allele set and genome length.
   This method uses the sequence generator function to generate sequences for the initial population."
   ([generator-function population-size generations fitness-function binary-operators unary-operators]
-   (evolve-with-sequence-generator generator-function population-size generations fitness-function binary-operators unary-operators {:solutions 1, :carry-over 1}))
+   (evolve-with-sequence-generator generator-function population-size generations fitness-function binary-operators unary-operators {:solutions 1, :carry-over 1, :insert-new 0}))
 
   ([generator-function population-size generations fitness-function binary-operators unary-operators options]
    {:pre [(and (every? coll? [binary-operators unary-operators])
                (every? int? [population-size generations])
                (every? fn? [generator-function fitness-function]))]}
-   (evolution-loop (io/build-population population-size generator-function fitness-function) population-size generations binary-operators unary-operators options)))
+   (let [solutions (max 1 (:solutions options))
+         carry-over (max 1 (:carry-over options))
+         replace-worst (max 0 (:insert-new options))
+         monitors (:monitors options)]
+     (loop [population (io/build-population population-size generator-function fitness-function)
+            current-generation 0]
+       (when monitors (monitors/apply-monitors monitors population current-generation))
+       (println "generation #" current-generation)
+       (if (>= current-generation generations)
+         (take solutions (sort-by :fitness-score #(> %1 %2) population))
+         (recur (po/advance-generation population population-size binary-operators unary-operators {:carry-over carry-over :insert-new replace-worst}) (inc current-generation)))))))
 

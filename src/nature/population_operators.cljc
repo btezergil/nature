@@ -1,6 +1,7 @@
 (ns nature.population-operators
   "Functions that span or operate against entire populations"
-  (:require [cljx-sampling.core :as rnd]))
+  (:require [cljx-sampling.core :as rnd]
+            [nature.initialization-operators :as io]))
 
 (defn keep-elite
   "Find the top `number-to-keep` individuals in `population`, and increment their ages by 1"
@@ -23,8 +24,14 @@
   ([population population-size binary-operator-set unary-operator-set]
    (let [binary-pop (repeatedly population-size #(apply (rand-nth binary-operator-set) [(weighted-selection-of-population population 2)]))]
      (map #(apply (rand-nth unary-operator-set) [%]) binary-pop)))
+
   ([population population-size binary-operator-set unary-operator-set settings]
-  ;; Currently, :carry-over is the only optional behavior
    (if (> (:carry-over settings) 0)
      (concat (advance-generation population (- population-size (:carry-over settings)) binary-operator-set unary-operator-set) (keep-elite population (:carry-over settings)))
-     (advance-generation population population-size binary-operator-set unary-operator-set))))
+     (advance-generation population population-size binary-operator-set unary-operator-set)))
+
+  ([population population-size generator-fn fitness-fn binary-operator-set unary-operator-set settings]
+   (let [elites (keep-elite population (:carry-over settings))
+         new-individuals (io/build-population (:insert-new settings) generator-fn fitness-fn)
+         next-gen (advance-generation population (- population-size (+ (:insert-new settings) (:carry-over settings))) binary-operator-set unary-operator-set)]
+     (concat next-gen elites new-individuals))))
