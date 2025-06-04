@@ -1,7 +1,8 @@
 (ns nature.core
   (:require [nature.initialization-operators :as io]
             [nature.population-operators :as po]
-            [nature.monitors :as monitors]))
+            [nature.monitors :as monitors]
+            [clojure.tools.logging :as log]))
 
 (defn evolve
   "Create and evolve a population under the specified conditions until a termination criteria is reached
@@ -46,13 +47,13 @@
                (every? fn? [generator-function fitness-function]))]}
    (let [solutions (max 1 (:solutions options))
          carry-over (max 1 (:carry-over options))
-         replace-worst (max 0 (:insert-new options))
+         insert-new (max 0 (:insert-new options))
          monitors (:monitors options)]
      (loop [population (io/build-population population-size generator-function fitness-function)
             current-generation 0]
        (when monitors (monitors/apply-monitors monitors population current-generation))
-       (println "generation #" current-generation)
+       (log/info "generation #" current-generation)
        (if (>= current-generation generations)
          (take solutions (sort-by :fitness-score #(> %1 %2) population))
-         (recur (po/advance-generation population population-size binary-operators unary-operators {:carry-over carry-over :insert-new replace-worst}) (inc current-generation)))))))
+         (recur (po/advance-generation population population-size binary-operators unary-operators {:carry-over carry-over :insert-new insert-new}) (inc current-generation)))))))
 
