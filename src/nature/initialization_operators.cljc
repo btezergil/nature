@@ -35,7 +35,7 @@
   "Build `population-size` individuals by invoking `build-individual` on random, conforming genetic sequences.
   If given a sequence generator function, uses this function to generate valid sequences instead."
   ([population-size sequence-generator-function fitness-function]
-   (apply pcalls  (repeat population-size #(build-individual (sequence-generator-function) fitness-function))))
+   (apply pcalls (repeat population-size #(build-individual (sequence-generator-function) fitness-function))))
 
   ([population-size alleles sequence-length fitness-function]
    (repeatedly population-size #(build-individual (generate-sequence alleles sequence-length) fitness-function))))

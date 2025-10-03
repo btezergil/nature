@@ -55,5 +55,5 @@
        (log/info "generation #" current-generation)
        (if (>= current-generation generations)
          (take solutions (sort-by :fitness-score #(> %1 %2) population))
-         (recur (po/advance-generation population population-size binary-operators unary-operators {:carry-over carry-over :insert-new insert-new}) (inc current-generation)))))))
+         (recur (po/advance-generation population population-size generator-function fitness-function binary-operators unary-operators {:carry-over carry-over :insert-new insert-new}) (inc current-generation)))))))
 
