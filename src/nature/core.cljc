@@ -4,6 +4,31 @@
             [nature.monitors :as monitors]
             [clojure.tools.logging :as log]))
 
+(defn- all-zero-fitness?
+  [population]
+  (every? #(zero? (:fitness-score %)) population))
+
+(defn- build-population-with-initial-retries
+  [population-size generator-function fitness-function initial-population-retries]
+  (loop [attempt 0
+         population (io/build-population population-size generator-function fitness-function)]
+    (if (and (< attempt initial-population-retries)
+             (all-zero-fitness? population))
+      (do
+        (log/warn "Initial population has all-zero fitness; rebuilding before weighted selection."
+                  {:attempt (inc attempt)
+                   :initial-population-retries initial-population-retries})
+        (recur (inc attempt)
+               (io/build-population population-size generator-function fitness-function)))
+      (do
+        (when (and (pos? initial-population-retries)
+                   (all-zero-fitness? population))
+          (throw (ex-info "Initial population has all-zero fitness after configured retries; weighted selection cannot proceed."
+                          {:population-size population-size
+                           :initial-population-retries initial-population-retries
+                           :attempts (inc attempt)})))
+        population))))
+
 (defn evolve
   "Create and evolve a population under the specified conditions until a termination criteria is reached
   `allele-set` is a collection of legal genome values
@@ -37,7 +62,8 @@
 
 (defn evolve-with-sequence-generator
   "Same with evolve method, but takes a sequence generator function instead of an allele set and genome length.
-  This method uses the sequence generator function to generate sequences for the initial population."
+  This method uses the sequence generator function to generate sequences for the initial population.
+  `:initial-population-retries` optionally rebuilds the initial population when every fitness score is zero. Default is 0."
   ([generator-function population-size generations fitness-function binary-operators unary-operators]
    (evolve-with-sequence-generator generator-function population-size generations fitness-function binary-operators unary-operators {:solutions 1, :carry-over 1, :insert-new 0}))
 
@@ -45,15 +71,15 @@
    {:pre [(and (every? coll? [binary-operators unary-operators])
                (every? int? [population-size generations])
                (every? fn? [generator-function fitness-function]))]}
-   (let [solutions (max 1 (:solutions options))
-         carry-over (max 1 (:carry-over options))
-         insert-new (max 0 (:insert-new options))
+   (let [solutions (max 1 (get options :solutions 1))
+         carry-over (max 1 (get options :carry-over 1))
+         insert-new (max 0 (get options :insert-new 0))
+         initial-population-retries (max 0 (get options :initial-population-retries 0))
          monitors (:monitors options)]
-     (loop [population (io/build-population population-size generator-function fitness-function)
+     (loop [population (build-population-with-initial-retries population-size generator-function fitness-function initial-population-retries)
             current-generation 0]
        (when monitors (monitors/apply-monitors monitors population current-generation))
        (log/info "generation #" current-generation)
        (if (>= current-generation generations)
          (take solutions (sort-by :fitness-score #(> %1 %2) population))
          (recur (po/advance-generation population population-size generator-function fitness-function binary-operators unary-operators {:carry-over carry-over :insert-new insert-new}) (inc current-generation)))))))
-
