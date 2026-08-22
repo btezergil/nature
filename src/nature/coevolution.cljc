@@ -109,18 +109,20 @@
         id-b (:species-id species-b)
         pairs (collaboration-pairs population-a population-b mode opponents)
         collaborations
-        (mapv (fn [[individual-a individual-b]]
-                (let [score (fitness-fn (:genetic-sequence individual-a)
-                                        (:genetic-sequence individual-b))]
-                  (require-condition (number? score)
-                                     "The collaboration fitness function must return a number."
-                                     {:species-a id-a :species-b id-b :score score})
-                  {:participants {id-a (:guid individual-a)
-                                  id-b (:guid individual-b)}
-                   :genomes {id-a (:genetic-sequence individual-a)
-                             id-b (:genetic-sequence individual-b)}
-                   :score score}))
-              pairs)
+        (into []
+              (#?(:clj pmap :cljs map)
+               (fn [[individual-a individual-b]]
+                 (let [score (fitness-fn (:genetic-sequence individual-a)
+                                         (:genetic-sequence individual-b))]
+                   (require-condition (number? score)
+                                      "The collaboration fitness function must return a number."
+                                      {:species-a id-a :species-b id-b :score score})
+                   {:participants {id-a (:guid individual-a)
+                                   id-b (:guid individual-b)}
+                    :genomes {id-a (:genetic-sequence individual-a)
+                              id-b (:genetic-sequence individual-b)}
+                    :score score}))
+               pairs))
         scores (reduce (fn [index {:keys [participants score]}]
                          (-> index
                              (update (get participants id-a) (fnil conj []) score)

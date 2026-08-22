@@ -80,6 +80,26 @@
           (species :b 3 (constantly [:b]))
           0 (constantly 1) {:opponents 1})))))
 
+#?(:clj
+   (deftest collaboration-evaluation-is-parallel-test
+     (let [active-calls (atom 0)
+           maximum-active-calls (atom 0)
+           result (nature/evolve-cooperatively
+                   (species :a 4 (constantly [:a]))
+                   (species :b 4 (constantly [:b]))
+                   0
+                   (fn [_genome-a _genome-b]
+                     (let [active (swap! active-calls inc)]
+                       (swap! maximum-active-calls max active)
+                       (Thread/sleep 50)
+                       (swap! active-calls dec)
+                       1))
+                   {:opponents 1
+                    :final-ratio 0.25
+                    :final-evaluation-fn (constantly :final)})]
+       (is (= 4 (count (:collaborations result))))
+       (is (> @maximum-active-calls 1)))))
+
 (deftest independent-reproduction-and-re-evaluation-test
   (let [counter-a (atom 0)
         counter-b (atom 0)

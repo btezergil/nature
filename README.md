@@ -176,7 +176,9 @@ evaluates each pair once, and therefore requires equal population sizes and a K
 between 1 and the population size. `:cartesian` scheduling supports different
 population sizes and evaluates every cross-species pair. Contextual fitness is
 the arithmetic mean of all collaboration scores credited to an individual and
-is cleared and recomputed in every generation, including for elites.
+is cleared and recomputed in every generation, including for elites. On the JVM,
+scheduled collaboration fitness calls are evaluated in parallel with `pmap`;
+ClojureScript evaluates them sequentially.
 
 `:final-ratio` defaults to `1.0` and must be in `(0, 1]`. Nature ranks each final
 population by contextual fitness, keeps `ceil(population-size * final-ratio)`,
