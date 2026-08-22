@@ -1,4 +1,4 @@
-## Unreleased
+## v1.1.0 / 2026 Aug 22
 
 * **Add** - Two-species cooperative coevolution with balanced and Cartesian collaboration scheduling
 * **Add** - Deferred contextual fitness, species-local reproduction, final Cartesian evaluation, monitors, specs, and documentation
