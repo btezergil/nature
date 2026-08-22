@@ -23,7 +23,8 @@
    If the `:carry-over` setting is added, the elite member `n` of the prior generation will be advanced to the next generation."
   ([population population-size binary-operator-set unary-operator-set]
    (let [binary-pop (time (repeatedly population-size #(apply (rand-nth binary-operator-set) [(weighted-selection-of-population population 2)])))]
-     (pmap #(apply (rand-nth unary-operator-set) [%]) binary-pop)))
+     (#?(:clj pmap :cljs map)
+      #(apply (rand-nth unary-operator-set) [%]) binary-pop)))
 
   ([population population-size binary-operator-set unary-operator-set settings]
    (if (> (:carry-over settings) 0)

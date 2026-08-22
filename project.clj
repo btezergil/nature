@@ -1,10 +1,11 @@
-(defproject org.clojars.btezergil/nature "1.0.2"
+(defproject org.clojars.btezergil/nature "1.1.0"
             :description "A simple genetic algorithms library for Clojure(Script)"
             :url "https://github.com/nnichols/nature"
             :license {:name "Eclipse Public License"
                       :url "http://www.eclipse.org/legal/epl-v10.html"}
             :dependencies [[org.clojure/clojure "1.12.0"]
                            [org.clojure/clojurescript "1.11.132" :scope "provided"]
+                           [org.clojure/tools.logging "1.3.0"]
                            [cljx-sampling "0.1.0"]]
 
             :plugins [[com.jakemccrary/lein-test-refresh "0.26.0"]

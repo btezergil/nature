@@ -1,6 +1,6 @@
 (ns nature.monitors
   "Helper functions to inspect generations and return run-time information, statistics, etc."
-  (:require [clojure.tools.logging :as log]))
+  #?(:clj (:require [clojure.tools.logging :as log])))
 
 (defn apply-monitors
   "Apply each function in `monitors` against `population` and `current-generation`"
@@ -13,10 +13,12 @@
    If a `format-fn` has been supplied, modify the output before printing.
    This is useful for separating the monitor code into a separate testable function."
   ([monitor-fn population current-generation]
-   (log/info (monitor-fn population current-generation)))
+   #?(:clj (log/info (monitor-fn population current-generation))
+      :cljs (.info js/console (monitor-fn population current-generation))))
 
   ([monitor-fn population current-generation format-fn]
-   (log/info (format-fn (monitor-fn population current-generation)))))
+   #?(:clj (log/info (format-fn (monitor-fn population current-generation)))
+      :cljs (.info js/console (format-fn (monitor-fn population current-generation))))))
 
 (defn print-best-solution*
   "Finds the individual with the highest fitness in `population`"

@@ -1,3 +1,9 @@
+## Unreleased
+
+* **Add** - Two-species cooperative coevolution with balanced and Cartesian collaboration scheduling
+* **Add** - Deferred contextual fitness, species-local reproduction, final Cartesian evaluation, monitors, specs, and documentation
+* **Fix** - Use platform-appropriate logging and population mapping in ClojureScript
+
 ## v1.0.0 / 2019 Oct 22
 
 > This release migrates nature to a .cljc library

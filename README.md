@@ -124,6 +124,86 @@ Now, to document why these settings can help solve each problem, we'll step thro
 
 From there, nature will run its course. 50 individuals with random genetic sequences containing a combination of 25 1s and 0s will be created. From there, they'll under go 50 cycles of reproduction and mutation, making sure to preserve the top 5 individuals. Once we've completed, we'll return the cream-of-the crop, and take off for lunch.
 
+## Cooperative coevolution
+
+`evolve-cooperatively` evolves two species independently and derives each
+individual's contextual fitness from its collaborations with the other species:
+
+```clojure
+(nature/evolve-cooperatively
+ {:species-id :rules
+  :population-size 20
+  :genome-generator generate-rule-genome
+  :binary-operators [cross-rule-genomes]
+  :unary-operators [mutate-rule-genome]
+  :carry-over 2
+  :insert-new 1}
+ {:species-id :parameters
+  :population-size 20
+  :genome-generator generate-parameter-genome
+  :binary-operators [cross-parameter-genomes]
+  :unary-operators [mutate-parameter-genome]}
+ 50
+ score-collaboration
+ {:collaboration-mode :balanced
+  :opponents 5
+  :final-ratio 0.1
+  :final-evaluation-fn evaluate-rich-result
+  :monitors [record-state]})
+```
+
+The exact callback signatures are:
+
+```clojure
+(genome-generator)                     ; => genome
+(binary-operator parent-genome-a
+                 parent-genome-b)      ; => [child-genome ...]
+(unary-operator genome)                 ; => genome
+(collaboration-fitness-fn genome-a
+                          genome-b)     ; => number
+(final-evaluation-fn genome-a genome-b) ; => any value
+(monitor complete-state)                ; side effects; return value ignored
+```
+
+Nature creates individual GUIDs and lineage, applies unary operators to the
+children returned by a randomly chosen binary operator, and does not ask genetic
+operators to calculate fitness. A species configuration's `:carry-over` and
+`:insert-new` default to 1 and 0. The two values must fit within that species'
+population size.
+
+Balanced scheduling gives every member exactly `:opponents` distinct opponents,
+evaluates each pair once, and therefore requires equal population sizes and a K
+between 1 and the population size. `:cartesian` scheduling supports different
+population sizes and evaluates every cross-species pair. Contextual fitness is
+the arithmetic mean of all collaboration scores credited to an individual and
+is cleared and recomputed in every generation, including for elites.
+
+`:final-ratio` defaults to `1.0` and must be in `(0, 1]`. Nature ranks each final
+population by contextual fitness, keeps `ceil(population-size * final-ratio)`,
+and enumerates their Cartesian product. If supplied, the final evaluator is
+called once per final pair; otherwise the collaboration fitness function is
+used. Evaluator return values are stored unchanged under `:result`.
+
+The return value is:
+
+```clojure
+{:generation 50
+ :populations {:rules [evaluated-individual ...]
+               :parameters [evaluated-individual ...]}
+ :collaborations [{:participants {:rules guid :parameters guid}
+                   :genomes {:rules genome :parameters genome}
+                   :score number} ...]
+ :solutions {:rules [top-individual ...]
+             :parameters [top-individual ...]}
+ :final-collaborations
+ [{:participants {:rules individual :parameters individual}
+   :result caller-value} ...]}
+```
+
+Monitors receive the complete generation state (`:generation`, both
+`:populations`, and that generation's `:collaborations`) after contextual
+fitness has been assigned.
+
 ## Documentation Site
 
 For more information on nature, please visit the full-length documentation [here.](https://nnichols.github.io/code/nature/intro)

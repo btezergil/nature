@@ -1,8 +1,9 @@
 (ns nature.core
   (:require [nature.initialization-operators :as io]
             [nature.population-operators :as po]
+            [nature.coevolution :as coevolution]
             [nature.monitors :as monitors]
-            [clojure.tools.logging :as log]))
+            #?(:clj [clojure.tools.logging :as log])))
 
 (defn- all-zero-fitness?
   [population]
@@ -15,9 +16,15 @@
     (if (and (< attempt initial-population-retries)
              (all-zero-fitness? population))
       (do
-        (log/warn "Initial population has all-zero fitness; rebuilding before weighted selection."
-                  {:attempt (inc attempt)
-                   :initial-population-retries initial-population-retries})
+        #?(:clj
+           (log/warn "Initial population has all-zero fitness; rebuilding before weighted selection."
+                     {:attempt (inc attempt)
+                      :initial-population-retries initial-population-retries})
+           :cljs
+           (.warn js/console
+                  "Initial population has all-zero fitness; rebuilding before weighted selection."
+                  (clj->js {:attempt (inc attempt)
+                            :initial-population-retries initial-population-retries})))
         (recur (inc attempt)
                (io/build-population population-size generator-function fitness-function)))
       (do
@@ -79,7 +86,27 @@
      (loop [population (build-population-with-initial-retries population-size generator-function fitness-function initial-population-retries)
             current-generation 0]
        (when monitors (monitors/apply-monitors monitors population current-generation))
-       (log/info "generation #" current-generation)
+       #?(:clj (log/info "generation #" current-generation)
+          :cljs (.info js/console "generation #" current-generation))
        (if (>= current-generation generations)
          (take solutions (sort-by :fitness-score #(> %1 %2) population))
          (recur (po/advance-generation population population-size generator-function fitness-function binary-operators unary-operators {:carry-over carry-over :insert-new insert-new}) (inc current-generation)))))))
+
+(defn evolve-cooperatively
+  "Evolve two populations whose contextual fitness comes from collaboration.
+
+  Each species configuration contains `:species-id`, `:population-size`,
+  `:genome-generator`, `:binary-operators`, and `:unary-operators`; optional
+  `:carry-over` and `:insert-new` values default to 1 and 0. Binary operators
+  accept two genomes and return one or more child genomes. Unary operators
+  accept and return one genome. `collaboration-fitness-fn` accepts one genome
+  from each species (in argument order) and returns a numeric score.
+
+  Options are `:collaboration-mode` (`:balanced`, the default, or `:cartesian`),
+  `:opponents` (K for balanced scheduling, default 1), `:final-ratio` (default
+  1.0), `:final-evaluation-fn`, and `:monitors`. Final evaluators accept the two
+  genomes and may return any value. Each monitor accepts the complete state map."
+  ([species-a species-b generations collaboration-fitness-fn]
+   (evolve-cooperatively species-a species-b generations collaboration-fitness-fn {}))
+  ([species-a species-b generations collaboration-fitness-fn options]
+   (coevolution/evolve species-a species-b generations collaboration-fitness-fn options)))
