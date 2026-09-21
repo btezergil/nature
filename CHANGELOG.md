@@ -1,3 +1,10 @@
+## v1.2.0 / 2026 Sep 21
+
+* **Add** - Panel collaboration mode with composable selectors, frozen shared panels, focal mean credit, and per-generation pair caching
+* **Add** - Best fitness, random, specialist, generalist, diverse strong, and three historical champion selectors, plus generic ranking/all-member helpers
+* **Add** - Bounded historical snapshots, panel statistics/provenance, and an opt-in panel member monitor
+* **Add** - Panel validation, specs, Clojure/ClojureScript tests, and API examples; existing balanced and Cartesian behavior remains unchanged
+
 ## v1.1.0 / 2026 Aug 22
 
 * **Add** - Two-species cooperative coevolution with balanced and Cartesian collaboration scheduling

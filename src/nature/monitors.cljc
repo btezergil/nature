@@ -59,3 +59,23 @@
   "Finds how frequently each fitness score is repeated across the `population`, and prints it to std-out"
   [population current-generation]
   (mk-monitor print-fitness-score-frequencies* population current-generation))
+
+(defn print-panel-members*
+  "Summarize the actual panels used in one cooperative generation."
+  [state]
+  (when (= :panel (:collaboration-mode state))
+    {:generation (:generation state)
+     :panels (into {}
+                   (for [[id panel] (:panels state)]
+                     [id {:count (count panel)
+                          :members (mapv (fn [individual]
+                                           {:guid (:guid individual)
+                                            :origins (get-in state [:panel-provenance id (:guid individual)])})
+                                         panel)}]))}))
+
+(defn print-panel-members
+  "Log current panel identities and selection origins; ignore non-panel states."
+  [state]
+  (when-let [summary (print-panel-members* state)]
+    #?(:clj (log/info summary)
+       :cljs (.info js/console summary))))

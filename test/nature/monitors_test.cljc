@@ -20,6 +20,24 @@
       (is (not= (:guid best-solution) (:guid worst-solution)))
       (is (>= (:fitness-score best-solution) (:fitness-score worst-solution))))))
 
+(deftest panel-monitor-test
+  (let [state {:generation 3 :collaboration-mode :panel
+               :panels {:a [{:guid "a"}] :b [{:guid "b"}]}
+               :next-panels {:a [{:guid "next"}]}
+               :panel-provenance {:a {"a" [{:selector-name :historical-best-fitness}]}
+                                  :b {"b" [{:selector-name :bootstrap}]}}}
+        summary (mo/print-panel-members* state)]
+    (is (= 3 (:generation summary)))
+    (is (= {:count 1 :members [{:guid "a" :origins [{:selector-name :historical-best-fitness}]}]}
+           (get-in summary [:panels :a])))
+    (is (= "b" (get-in summary [:panels :b :members 0 :guid])))
+    (is (nil? (mo/print-panel-members* {:generation 0})))
+    (is (nil? (mo/print-panel-members {:generation 0})))
+    (let [seen (atom nil)]
+      (with-redefs [mo/print-panel-members* (fn [value] (reset! seen value) nil)]
+        (mo/print-panel-members state))
+      (is (= state @seen)))))
+
 (deftest frequencies-monitors-test
   (let [sample-population (io/build-population 200
                                                pp/binary-genome

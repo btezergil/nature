@@ -102,10 +102,16 @@
   accept and return one genome. `collaboration-fitness-fn` accepts one genome
   from each species (in argument order) and returns a numeric score.
 
-  Options are `:collaboration-mode` (`:balanced`, the default, or `:cartesian`),
+  Options are `:collaboration-mode` (`:balanced`, the default, `:cartesian`, or `:panel`),
   `:opponents` (K for balanced scheduling, default 1), `:final-ratio` (default
   1.0), `:final-evaluation-fn`, and `:monitors`. Final evaluators accept the two
-  genomes and may return any value. Each monitor accepts the complete state map."
+  genomes and may return any value. Each monitor accepts the complete state map.
+
+  Panel mode accepts a non-empty `:panel-selection-fns` sequence, defaulting
+  when omitted to one random member. Generation zero uses random bootstrap
+  panels; selectors use each completed scored population and bounded historical
+  champions to build the next panels. Fitness is the mean of focal encounters.
+  See nature.panel-selectors for selector functions and README for context keys."
   ([species-a species-b generations collaboration-fitness-fn]
    (evolve-cooperatively species-a species-b generations collaboration-fitness-fn {}))
   ([species-a species-b generations collaboration-fitness-fn options]

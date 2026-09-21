@@ -180,6 +180,121 @@ is cleared and recomputed in every generation, including for elites. On the JVM,
 scheduled collaboration fitness calls are evaluated in parallel with `pmap`;
 ClojureScript evaluates them sequentially.
 
+### Shared panel collaboration
+
+Version 1.2.0 adds `:panel` to the existing `:collaboration-mode` option:
+
+```clojure
+(require '[nature.panel-selectors :as panels]
+         '[nature.monitors :as monitors])
+
+(nature/evolve-cooperatively
+ species-a species-b 50 score-collaboration
+ {:collaboration-mode :panel
+  :panel-selection-fns
+  [panels/best-fitness
+   (panels/random-members 1)
+   panels/specialist
+   panels/generalist
+   (panels/diverse-strong structural-distance)
+   panels/historical-best-fitness
+   panels/historical-best-average
+   panels/historical-best-maximum]
+  :monitors [monitors/print-panel-members]})
+```
+
+Every live individual faces the same frozen opposite-species panel for one
+generation. Each unique pair is evaluated once per generation, even if scheduled
+in both directions. Only focal encounters contribute fitness: being a panel
+reference does not award extra credit. Fitness is the mean focal encounter score.
+Panel scores must be finite numbers. Unequal population sizes are supported.
+
+Omitting `:panel-selection-fns` defaults to one random member per species.
+An explicitly empty list, nil, or invalid function list is an error. `:opponents`
+only configures balanced mode. Other modes do not invoke panel selectors.
+
+Generation zero uses one randomly sampled bootstrap reference per species.
+After each nonterminal generation, selectors use its scored population to build
+the next generation's panels, before reproduction. References may therefore be
+absent from the next live population. There is no extra bootstrap evaluation
+pass. A run with zero generations evaluates the bootstrap panels and does not
+invoke the configured selectors.
+
+| Selector | Rule |
+| --- | --- |
+| `best-fitness` | Highest assigned fitness |
+| `(random-members n)` | Up to n random members without replacement |
+| `specialist` | Highest single focal encounter score |
+| `generalist` | Highest mean focal encounter score |
+| `(diverse-strong distance-fn)` | Structurally distinct member of the top fitness quartile |
+| `historical-best-fitness` | Best observed assigned fitness across generations |
+| `historical-best-average` | Best observed mean across generations |
+| `historical-best-maximum` | Best observed single encounter across generations |
+| `all-members` | Entire completed population |
+| `(ranked-members n score-fn)` | Highest custom scores; score-fn takes individual and context |
+
+Best fitness and generalist currently coincide because assigned fitness is the
+mean. Selections are deduplicated by GUID, keeping the first snapshot and all
+selector origins. Panel sizes can shrink through overlap; no automatic backfill
+occurs. Counts must be positive integers and are capped at population size.
+Current-score ties preserve population order.
+
+For diversity, provide `(distance-fn genome-a genome-b context)` returning a finite
+non-negative structural distance; zero means equivalent. Nature considers exactly
+`ceil(population-size / 4)` top-fitness candidates, excludes already-selected
+GUIDs, and maximizes minimum distance from earlier selections. If there are no
+earlier selections, the best-fitness individual is the reference. Candidates
+must have strictly positive minimum distance; otherwise the selector returns
+no member. Distance ties prefer higher fitness, then population order. Place
+this selector after the members it should complement. Nature does not impose a
+genome-specific distance algorithm.
+
+Custom selectors receive:
+
+```clojure
+(fn [{:keys [generation source-generation species-id species population
+             statistics history previous-panel selected-panel]}]
+  ;; Return a finite sequence of candidate individual snapshots.
+  [(first population)])
+```
+
+`generation` is the target generation and `source-generation` the completed one.
+`population` is the scored population of this species; `statistics` maps its
+GUIDs to `:fitness-score`, `:average-score`, `:maximum-score`, and
+`:encounter-count`. `species` is its normalized configuration. `history`
+contains `:fitness`, `:average`, and `:maximum` champion records.
+`previous-panel` is the completed generation's panel; `selected-panel` holds
+earlier selectors' deduplicated choices. The same selector list runs sequentially
+for both species; branch on `species-id` for different policies.
+
+Return unchanged snapshots from the scored population, history records'
+`:individual`, or previous panel. Unknown/modified snapshots and conflicting
+genomes for the same species/GUID are rejected. An individual selector may return
+`[]`, but the combined panel must be non-empty.
+
+History retains only three champion records per species. Each includes
+`:individual`, `:metric-value`, `:source-generation`, `:statistics`, and
+`:opposite-panel-guids`. Strict improvements replace champions; ties keep the
+earlier observation. History updates on the terminal generation too. Historical
+scores reflect different opponent panels and are not automatically normalized
+or re-evaluated. Archived references receive fresh collaboration evaluations
+without changing their stored historical scores.
+
+Panel monitor/result state adds `:collaboration-mode`, `:panels`,
+`:panel-provenance`, `:panel-statistics`, `:panel-history`, `:next-panels`,
+`:next-panel-provenance`, `:directional-collaboration-count`, and
+`:unique-collaboration-evaluation-count`. Next-panel fields are nil when terminal.
+Directional records add focal/collaborator species IDs and GUIDs to the existing
+participants, genomes, and score fields. Panel snapshots carry their observation
+fitness; current live fitness is in `:populations`.
+
+`print-panel-members` is an opt-in one-argument cooperative monitor. It logs
+current generation, species, member counts, GUIDs, and selector origins, including
+bootstrap and historical selections. It ignores non-panel state.
+`print-panel-members*` returns the same summary without logging.
+
+### Final evaluation and results
+
 `:final-ratio` defaults to `1.0` and must be in `(0, 1]`. Nature ranks each final
 population by contextual fitness, keeps `ceil(population-size * final-ratio)`,
 and enumerates their Cartesian product. If supplied, the final evaluator is

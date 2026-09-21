@@ -1,7 +1,9 @@
 (ns nature.coevolution
   "Implementation helpers for two-species cooperative coevolution."
   (:require [nature.initialization-operators :as io]
-            [nature.population-presets :as pp]))
+            [nature.population-presets :as pp]
+            [nature.panel :as panel]
+            [nature.panel-selectors :as panel-selectors]))
 
 (defn- fail
   [message data]
@@ -239,6 +241,39 @@
     {:solutions {id-a solutions-a id-b solutions-b}
      :final-collaborations results}))
 
+(defn- evolve-panel
+  [species-a species-b generations fitness-fn options]
+  (let [selection-fns (panel/validate-selectors
+                       (get options :panel-selection-fns [(panel-selectors/random-members 1)]))
+        id-a (:species-id species-a)
+        id-b (:species-id species-b)
+        species {id-a species-a id-b species-b}
+        initial {id-a (initialize-population species-a)
+                 id-b (initialize-population species-b)}]
+    (loop [generation 0
+           populations initial
+           panel-state (panel/bootstrap initial)
+           history {}]
+      (let [terminal? (>= generation generations)
+            evaluated (merge {:generation generation :collaboration-mode :panel}
+                             panel-state
+                             (panel/evaluate id-a id-b populations (:panels panel-state) fitness-fn))
+            history (panel/update-history history evaluated)
+            evaluated (assoc evaluated :panel-history history)
+            next-state (when-not terminal? (panel/next-panels selection-fns species evaluated))
+            state (assoc evaluated :next-panels (:panels next-state)
+                                   :next-panel-provenance (:panel-provenance next-state))]
+        (monitor! (:monitors options) state)
+        (if terminal?
+          (merge state
+                 (final-collaborations species-a species-b (:populations state)
+                                       (get options :final-ratio 1.0)
+                                       (:final-evaluation-fn options) fitness-fn))
+          (recur (inc generation)
+                 {id-a (advance-population (get-in state [:populations id-a]) species-a)
+                  id-b (advance-population (get-in state [:populations id-b]) species-b)}
+                 next-state history))))))
+
 (defn evolve
   [species-a species-b generations collaboration-fitness-fn options]
   (require-condition (and (int? generations) (not (neg? generations)))
@@ -268,20 +303,25 @@
     (require-condition (and (coll? monitors) (every? fn? monitors))
                        ":monitors must be a collection of functions."
                        {})
-    (loop [generation 0
-           population-a (initialize-population species-a)
-           population-b (initialize-population species-b)]
-      (let [{:keys [populations collaborations]}
-            (evaluate-populations species-a species-b population-a population-b
-                                  mode opponents collaboration-fitness-fn)
-            state {:generation generation
-                   :populations populations
-                   :collaborations collaborations}]
-        (monitor! monitors state)
-        (if (>= generation generations)
-          (merge state
-                 (final-collaborations species-a species-b populations final-ratio
-                                       final-evaluation-fn collaboration-fitness-fn))
-          (recur (inc generation)
-                 (advance-population (get populations id-a) species-a)
-                 (advance-population (get populations id-b) species-b)))))))
+    (require-condition (contains? #{:balanced :cartesian :panel} mode)
+                       "Unknown collaboration mode."
+                       {:collaboration-mode mode :supported-modes #{:balanced :cartesian :panel}})
+    (if (= mode :panel)
+      (evolve-panel species-a species-b generations collaboration-fitness-fn options)
+      (loop [generation 0
+             population-a (initialize-population species-a)
+             population-b (initialize-population species-b)]
+        (let [{:keys [populations collaborations]}
+              (evaluate-populations species-a species-b population-a population-b
+                                    mode opponents collaboration-fitness-fn)
+              state {:generation generation
+                     :populations populations
+                     :collaborations collaborations}]
+          (monitor! monitors state)
+          (if (>= generation generations)
+            (merge state
+                   (final-collaborations species-a species-b populations final-ratio
+                                         final-evaluation-fn collaboration-fitness-fn))
+            (recur (inc generation)
+                   (advance-population (get populations id-a) species-a)
+                   (advance-population (get populations id-b) species-b))))))))
