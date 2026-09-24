@@ -206,7 +206,7 @@ Version 1.2.0 adds `:panel` to the existing `:collaboration-mode` option:
 Every live individual faces the same frozen opposite-species panel for one
 generation. Each unique pair is evaluated once per generation, even if scheduled
 in both directions. Only focal encounters contribute fitness: being a panel
-reference does not award extra credit. Fitness is the mean focal encounter score.
+reference does not award extra credit. Fitness defaults to the mean focal encounter score.
 Panel scores must be finite numbers. Unequal population sizes are supported.
 
 Omitting `:panel-selection-fns` defaults to one random member per species.
@@ -233,8 +233,8 @@ invoke the configured selectors.
 | `all-members` | Entire completed population |
 | `(ranked-members n score-fn)` | Highest custom scores; score-fn takes individual and context |
 
-Best fitness and generalist currently coincide because assigned fitness is the
-mean. Selections are deduplicated by GUID, keeping the first snapshot and all
+Best fitness and generalist coincide under default mean credit. Other credit
+policies can separate them. Selections are deduplicated by GUID, keeping the first snapshot and all
 selector origins. Panel sizes can shrink through overlap; no automatic backfill
 occurs. Counts must be positive integers and are capped at population size.
 Current-score ties preserve population order.
@@ -292,6 +292,78 @@ fitness; current live fitness is in `:populations`.
 current generation, species, member counts, GUIDs, and selector origins, including
 bootstrap and historical selections. It ignores non-panel state.
 `print-panel-members*` returns the same summary without logging.
+
+
+
+### Panel credit policies
+
+Panel mode accepts `:panel-credit` (default `:mean`). Higher assigned credit is
+better. Built-ins are `:mean`, `:maximum`, `:top-two-mean`, and `:weighted`:
+
+```clojure
+(nature/evolve-cooperatively species-a species-b generations pair-fitness
+  {:collaboration-mode :panel
+   :panel-selection-fns [(panels/random-members 5)]
+   :panel-credit :weighted
+   :panel-credit-weights [0.4 0.3 0.15 0.1 0.05]})
+```
+
+Top-two mean averages the two highest focal scores, using the sole score during
+singleton bootstrap. Weighted credit sorts scores descending (not partner IDs),
+then weights them. Weights must be a non-empty finite, non-negative sequence
+whose first weight is positive, so bootstrap is defined. A shorter actual panel
+truncates the weight vector and renormalizes its retained weights; a panel longer
+than the weight vector is an error. Retained weights must have a finite positive
+sum. Non-finite scores or resulting credit are errors. Negative scores are valid.
+`:panel-credit-weights` is required for `:weighted` and rejected for other policies.
+Both options are rejected outside panel mode, including explicitly supplied mean.
+
+A custom `:panel-credit` function receives:
+
+```clojure
+{:generation 0
+ :species-id :a
+ :individual focal-individual
+ :collaborator-species-id :b
+ :panel opposite-species-panel
+ :encounters focal-directional-records}
+```
+
+The panel and encounter vectors preserve the same partner order. Encounter records
+contain participant GUIDs, genomes, focal/collaborator identities, and `:score`.
+Only this individual's focal encounters are supplied; reciprocal reference roles
+never add credit. Return one finite number. The callback runs once per individual,
+after pair evaluation and before history, selectors, monitors, and reproduction.
+Keep it pure and deterministic: invocation order across species is unspecified.
+Failures include generation, species ID, and focal GUID in exception data.
+
+Public `nature.credit/mean`, `maximum`, and `top-two-mean` consume that context;
+`(nature.credit/weighted weights)` returns a compatible callback. For example:
+
+```clojure
+(require '[nature.credit :as credit])
+;; Consumer-defined blend, without extra collaboration evaluations:
+{:collaboration-mode :panel
+ :panel-credit (fn [context]
+                 (+ (* 0.5 (credit/mean context))
+                    (* 0.5 (credit/maximum context))))}
+```
+
+Assigned `:fitness-score` drives parent sampling, elite carry-over, fitness-based
+panel selectors (including diverse-strong's candidate pool), and fitness history.
+`:average-score` and `:maximum-score` remain raw encounter statistics, so generalist,
+specialist, and their corresponding historical selectors retain their meanings.
+Existing positive-shifted fitness-weighted parent sampling is unchanged. Final
+`:final-ratio` shortlisting also uses assigned credit; the subsequent Cartesian
+`:final-evaluation-fn` is unchanged. Use ratio 1.0 to include all terminal individuals.
+
+Monitor/result state includes `:panel-credit-policy` and, for weighted credit,
+`:panel-credit-weights`. Custom callbacks report `:custom`; the consumer must record
+its implementation/version/configuration for reproducibility. Omitting the policy
+preserves mean scoring and introduces no random draws. Population-level ranking,
+Pareto selection, and even-distributed sorting are not scalar-credit policies and
+are not implemented by this interface.
+
 
 ### Final evaluation and results
 

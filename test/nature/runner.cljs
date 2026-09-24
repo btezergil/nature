@@ -3,6 +3,7 @@
             [nature.core-test]
             [nature.coevolution-test]
             [nature.panel-test]
+            [nature.credit-test]
             [nature.panel-selectors-test]
             [nature.fitness-functions-test]
             [nature.genetic-operators-test]
@@ -14,6 +15,7 @@
 (doo-tests 'nature.core-test
            'nature.coevolution-test
            'nature.panel-test
+           'nature.credit-test
            'nature.panel-selectors-test
            'nature.fitness-functions-test
            'nature.genetic-operators-test

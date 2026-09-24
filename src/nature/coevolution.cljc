@@ -3,6 +3,7 @@
   (:require [nature.initialization-operators :as io]
             [nature.population-presets :as pp]
             [nature.panel :as panel]
+            [nature.credit :as credit]
             [nature.panel-selectors :as panel-selectors]))
 
 (defn- fail
@@ -243,7 +244,8 @@
 
 (defn- evolve-panel
   [species-a species-b generations fitness-fn options]
-  (let [selection-fns (panel/validate-selectors
+  (let [{:keys [credit-fn metadata]} (credit/resolve-options options)
+        selection-fns (panel/validate-selectors
                        (get options :panel-selection-fns [(panel-selectors/random-members 1)]))
         id-a (:species-id species-a)
         id-b (:species-id species-b)
@@ -256,8 +258,9 @@
            history {}]
       (let [terminal? (>= generation generations)
             evaluated (merge {:generation generation :collaboration-mode :panel}
-                             panel-state
-                             (panel/evaluate id-a id-b populations (:panels panel-state) fitness-fn))
+                             panel-state metadata
+                             (panel/evaluate id-a id-b populations (:panels panel-state)
+                                             fitness-fn credit-fn generation))
             history (panel/update-history history evaluated)
             evaluated (assoc evaluated :panel-history history)
             next-state (when-not terminal? (panel/next-panels selection-fns species evaluated))
@@ -306,6 +309,10 @@
     (require-condition (contains? #{:balanced :cartesian :panel} mode)
                        "Unknown collaboration mode."
                        {:collaboration-mode mode :supported-modes #{:balanced :cartesian :panel}})
+    (require-condition (or (= mode :panel)
+                           (not-any? #(contains? options %) [:panel-credit :panel-credit-weights]))
+                       "Panel credit options require :collaboration-mode :panel."
+                       {:collaboration-mode mode})
     (if (= mode :panel)
       (evolve-panel species-a species-b generations collaboration-fitness-fn options)
       (loop [generation 0

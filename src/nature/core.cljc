@@ -110,7 +110,9 @@
   Panel mode accepts a non-empty `:panel-selection-fns` sequence, defaulting
   when omitted to one random member. Generation zero uses random bootstrap
   panels; selectors use each completed scored population and bounded historical
-  champions to build the next panels. Fitness is the mean of focal encounters.
+  champions to build the next panels. :panel-credit defaults to :mean; alternatives
+  are :maximum, :top-two-mean, :weighted (with :panel-credit-weights), or a custom
+  context-to-finite-scalar callback. See nature.credit and README for the contract.
   See nature.panel-selectors for selector functions and README for context keys."
   ([species-a species-b generations collaboration-fitness-fn]
    (evolve-cooperatively species-a species-b generations collaboration-fitness-fn {}))
