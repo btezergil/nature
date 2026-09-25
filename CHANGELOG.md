@@ -1,6 +1,6 @@
 ## v1.3.0 / Unreleased
 
-* **Add** - Configurable panel credit with mean (default), maximum, top-two mean, weighted sorted scores, and custom scalar callbacks
+* **Add** - Configurable collaboration credit across balanced, Cartesian, and panel modes with mean (default), maximum, top-two mean, weighted sorted scores, and custom scalar callbacks
 * **Add** - Credit policy metadata, finite-value validation, and explicit short-panel weight normalization
 * **Update** - Apply assigned credit to reproduction, fitness history, and fitness-based panel selection while preserving raw average/maximum encounter statistics
 * **Add** - Credit API documentation and Clojure/ClojureScript regression tests

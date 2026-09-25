@@ -26,8 +26,8 @@
   (is (error? #((credit/weighted [1]) (context [1 2]))))
   (doseq [weights [nil [] [0 1] [1 -1] [##Inf] [##NaN] ["1"] #{1}]]
     (is (error? #(credit/weighted weights))))
-  (doseq [options [{:panel-credit nil} {:panel-credit :unknown}
-                   {:panel-credit :weighted} {:panel-credit-weights [1]}]]
+  (doseq [options [{:credit-policy nil} {:credit-policy :unknown}
+                   {:credit-policy :weighted} {:credit-weights [1]}]]
     (is (error? #(credit/resolve-options options)))))
 
 (defn individual [guid n] {:guid guid :genetic-sequence [n] :fitness-score nil})
@@ -65,7 +65,8 @@
     (with-redefs [io/uuid #(str (swap! ids inc))
                   #?(:clj clojure.core/rand :cljs cljs.core/rand) (fn ([] (swap! draws inc) 0.75)
                                      ([n] (swap! draws inc) (* 0.75 n)))
-                  #?(:clj clojure.core/rand-nth :cljs cljs.core/rand-nth) first]
+                  #?(:clj clojure.core/rand-nth :cljs cljs.core/rand-nth) first
+                  #?(:clj clojure.core/shuffle :cljs cljs.core/shuffle) vec]
       (let [result (nature/evolve-cooperatively
                     (species :a) (species :b) 2 fitness
                     (merge {:collaboration-mode :panel
@@ -75,12 +76,12 @@
         {:result result :states @states :draws @draws}))))
 
 (deftest lifecycle-credit-and-default-regression-test
-  (let [implicit (deterministic-run {}) explicit (deterministic-run {:panel-credit :mean})
-        maximum (deterministic-run {:panel-credit :maximum})
+  (let [implicit (deterministic-run {}) explicit (deterministic-run {:credit-policy :mean})
+        maximum (deterministic-run {:credit-policy :maximum})
         state (second (:states maximum)) terminal (last (:states maximum))]
     (is (= implicit explicit))
     (is (pos? (:draws implicit)))
-    (is (= :maximum (:panel-credit-policy terminal)))
+    (is (= :maximum (:credit-policy terminal)))
     (is (= 10 (get-in state [:panel-history :a :fitness :metric-value])))
     (is (= 10 (get-in state [:panel-history :a :average :metric-value])))
     (is (= (->> (get-in state [:populations :a]) (sort-by :fitness-score >) first :guid)
@@ -89,10 +90,10 @@
 
 (deftest invalid-configuration-precedes-initialization-test
   (let [generated (atom 0) a (assoc (species :a) :genome-generator #(do (swap! generated inc) [1]))]
-    (doseq [opts [{:collaboration-mode :balanced :panel-credit :mean}
-                  {:collaboration-mode :cartesian :panel-credit-weights [1]}
-                  {:collaboration-mode :panel :panel-credit :weighted :panel-credit-weights [0 1]}
-                  {:collaboration-mode :panel :panel-credit :bad}]]
+    (doseq [opts [{:collaboration-mode :balanced :credit-policy :bad}
+                  {:collaboration-mode :cartesian :credit-weights [1]}
+                  {:collaboration-mode :panel :credit-policy :weighted :credit-weights [0 1]}
+                  {:collaboration-mode :panel :credit-policy :bad}]]
       (is (error? #(nature/evolve-cooperatively a (species :b) 1 fitness opts))))
     (is (zero? @generated))))
 
@@ -101,11 +102,11 @@
         policy (fn [{:keys [individual]}]
                  (if (= [2] (:genetic-sequence individual)) 9 1))
         {:keys [states]} (deterministic-run
-                         {:panel-credit policy
+                         {:credit-policy policy
                           :panel-selection-fns
                           [(fn [ctx] (swap! seen conj ctx) (selectors/best-fitness ctx))]})
         initial (first states) next-state (second states)]
-    (is (= :custom (:panel-credit-policy initial)))
+    (is (= :custom (:credit-policy initial)))
     (doseq [id [:a :b]
             :let [winner (second (get-in initial [:populations id]))
                   child (second (get-in next-state [:populations id]))]]
@@ -115,3 +116,75 @@
       (is (= 9 (get-in initial [:panel-history id :fitness :metric-value])))
       (is (= [(:guid winner)] (mapv :guid (get-in initial [:next-panels id])))))
     (is (= 4 (count @seen)))))
+
+(deftest all-modes-default-and-reproduction-test
+  (doseq [mode [:balanced :cartesian :panel]]
+    (let [opts {:collaboration-mode mode :opponents 2}
+          implicit (deterministic-run opts)
+          explicit (deterministic-run (assoc opts :credit-policy :mean))
+          custom (deterministic-run
+                  (assoc opts :credit-policy
+                         (fn [{:keys [individual]}]
+                           (if (= [2] (:genetic-sequence individual)) 9 1))))
+          [initial next-state] (:states custom)]
+      (is (= implicit explicit))
+      (is (= mode (get-in implicit [:result :collaboration-mode])))
+      (is (= :mean (get-in implicit [:result :credit-policy])))
+      (doseq [id [:a :b]
+              :let [winner (second (get-in initial [:populations id]))]]
+        (is (= (:guid winner) (get-in next-state [:populations id 0 :guid])))
+        (is (= [(:guid winner) (:guid winner)]
+               (get-in next-state [:populations id 1 :parents])))))))
+
+(deftest non-panel-policies-and-directional-context-test
+  (doseq [mode [:balanced :cartesian]
+          [policy extra expected]
+          [[:mean {} [6 5]]
+           [:maximum {} [6 10]]
+           [:top-two-mean {} [6 5]]
+           [:weighted {:credit-weights [3 1]} [6 (/ 15 2)]]]]
+    (let [seen (atom [])
+          configured (credit/resolve-options (merge {:credit-policy policy} extra))
+          run (fn [f]
+                (nature/evolve-cooperatively
+                 (species :a) (species :b) 0 fitness
+                 {:collaboration-mode mode :opponents 2 :credit-policy f
+                  :final-evaluation-fn (constantly :final)}))
+          result (run (fn [ctx]
+                        (swap! seen conj ctx)
+                        ((:credit-fn configured) ctx)))]
+      (is (= expected (mapv :fitness-score (get-in result [:populations :a]))))
+      (is (= 4 (count (:collaborations result))))
+      (is (= 4 (count @seen)))
+      (doseq [{:keys [generation collaboration-mode species-id individual
+                     collaborator-species-id encounters] :as ctx} @seen]
+        (is (= 0 generation))
+        (is (= mode collaboration-mode))
+        (is (not (contains? ctx :panel)))
+        (is (not= species-id collaborator-species-id))
+        (is (= 2 (count encounters)))
+        (is (= 2 (count (set (map :collaborator-guid encounters)))))
+        (is (every? #(and (= species-id (:focal-species-id %))
+                          (= (:guid individual) (:focal-guid %))) encounters)))
+      ;; Also exercise option resolution through the public entry point.
+      (let [direct (nature/evolve-cooperatively
+                    (species :a) (species :b) 0 fitness
+                    (merge {:collaboration-mode mode :opponents 2
+                            :credit-policy policy :final-evaluation-fn (constantly :final)} extra))]
+        (is (= policy (:credit-policy direct)))
+        (is (= expected (mapv :fitness-score (get-in direct [:populations :a]))))))))
+
+(deftest non-panel-invalid-scores-and-credit-test
+  (doseq [mode [:balanced :cartesian]
+          invalid [nil ##NaN ##Inf ##-Inf "1"]]
+    (is (error? #(nature/evolve-cooperatively
+                  (species :a) (species :b) 0 (constantly invalid)
+                  {:collaboration-mode mode :credit-policy (constantly 1)})))
+    (is (error? #(nature/evolve-cooperatively
+                  (species :a) (species :b) 0 fitness
+                  {:collaboration-mode mode :credit-policy (constantly invalid)}))))
+  (doseq [mode [:balanced :cartesian]]
+    (is (error? #(nature/evolve-cooperatively
+                  (species :a) (species :b) 0 fitness
+                  {:collaboration-mode mode :opponents 2
+                   :credit-policy :weighted :credit-weights [1]})))))

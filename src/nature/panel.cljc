@@ -151,7 +151,7 @@
                                         {:species-id id :guid (:guid individual)})
                               [(:guid individual) {:fitness-score
                                                    (credit/assign credit-fn
-                                                     {:generation generation :species-id id
+                                                     {:generation generation :collaboration-mode :panel :species-id id
                                                       :individual individual
                                                       :collaborator-species-id (if (= id id-a) id-b id-a)
                                                       :panel (get panels (if (= id id-a) id-b id-a))
