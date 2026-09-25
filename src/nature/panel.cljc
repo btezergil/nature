@@ -1,6 +1,7 @@
 (ns nature.panel
   "Internal panel scheduling, validation, statistics, and bounded history."
-  (:require [nature.panel-selectors :as selectors]))
+  (:require [nature.panel-selectors :as selectors]
+            [nature.credit :as credit]))
 
 (defn- require! [condition message data]
   (when-not condition (throw (ex-info message data))))
@@ -96,7 +97,10 @@
     {:panels (into {} (map (fn [[id result]] [id (:panel result)]) built))
      :panel-provenance (into {} (map (fn [[id result]] [id (:provenance result)]) built))}))
 
-(defn evaluate [id-a id-b populations panels fitness-fn]
+(defn evaluate
+  ([id-a id-b populations panels fitness-fn]
+   (evaluate id-a id-b populations panels fitness-fn credit/mean nil))
+  ([id-a id-b populations panels fitness-fn credit-fn generation]
   (validate-populations populations)
   (doseq [id [id-a id-b]]
     (let [panel (get panels id)]
@@ -138,13 +142,21 @@
               (for [[id population] populations]
                 [id (into {}
                           (for [individual population
-                                :let [values (map :score (get grouped [id (:guid individual)]))
+                                :let [encounters (get grouped [id (:guid individual)])
+                                      values (map :score encounters)
                                       mean (/ (reduce + values) (count values))]]
                             (do
                               (require! (selectors/finite-number? mean)
                                         "Panel mean fitness must be finite."
                                         {:species-id id :guid (:guid individual)})
-                              [(:guid individual) {:fitness-score mean :average-score mean
+                              [(:guid individual) {:fitness-score
+                                                   (credit/assign credit-fn
+                                                     {:generation generation :collaboration-mode :panel :species-id id
+                                                      :individual individual
+                                                      :collaborator-species-id (if (= id id-a) id-b id-a)
+                                                      :panel (get panels (if (= id id-a) id-b id-a))
+                                                      :encounters encounters})
+                                                   :average-score mean
                                                    :maximum-score (apply max values)
                                                    :encounter-count (count values)}])))]))]
     {:populations (into {} (for [[id population] populations]
@@ -154,7 +166,7 @@
      :collaborations records
      :panel-statistics statistics
      :directional-collaboration-count (count records)
-     :unique-collaboration-evaluation-count (count scores)}))
+     :unique-collaboration-evaluation-count (count scores)})))
 
 (defn update-history [history state]
   (reduce

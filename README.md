@@ -174,7 +174,7 @@ population size.
 Balanced scheduling gives every member exactly `:opponents` distinct opponents,
 evaluates each pair once, and therefore requires equal population sizes and a K
 between 1 and the population size. `:cartesian` scheduling supports different
-population sizes and evaluates every cross-species pair. Contextual fitness is
+population sizes and evaluates every cross-species pair. Contextual fitness defaults to
 the arithmetic mean of all collaboration scores credited to an individual and
 is cleared and recomputed in every generation, including for elites. On the JVM,
 scheduled collaboration fitness calls are evaluated in parallel with `pmap`;
@@ -206,7 +206,7 @@ Version 1.2.0 adds `:panel` to the existing `:collaboration-mode` option:
 Every live individual faces the same frozen opposite-species panel for one
 generation. Each unique pair is evaluated once per generation, even if scheduled
 in both directions. Only focal encounters contribute fitness: being a panel
-reference does not award extra credit. Fitness is the mean focal encounter score.
+reference does not award extra credit. Fitness defaults to the mean focal encounter score.
 Panel scores must be finite numbers. Unequal population sizes are supported.
 
 Omitting `:panel-selection-fns` defaults to one random member per species.
@@ -233,8 +233,8 @@ invoke the configured selectors.
 | `all-members` | Entire completed population |
 | `(ranked-members n score-fn)` | Highest custom scores; score-fn takes individual and context |
 
-Best fitness and generalist currently coincide because assigned fitness is the
-mean. Selections are deduplicated by GUID, keeping the first snapshot and all
+Best fitness and generalist coincide under default mean credit. Other credit
+policies can separate them. Selections are deduplicated by GUID, keeping the first snapshot and all
 selector origins. Panel sizes can shrink through overlap; no automatic backfill
 occurs. Counts must be positive integers and are capped at population size.
 Current-score ties preserve population order.
@@ -292,6 +292,90 @@ fitness; current live fitness is in `:populations`.
 current generation, species, member counts, GUIDs, and selector origins, including
 bootstrap and historical selections. It ignores non-panel state.
 `print-panel-members*` returns the same summary without logging.
+
+
+
+### Collaboration credit policies
+
+All collaboration modes accept `:credit-policy` (default `:mean`). Higher assigned credit is
+better. Built-ins are `:mean`, `:maximum`, `:top-two-mean`, and `:weighted`:
+
+```clojure
+(nature/evolve-cooperatively species-a species-b generations pair-fitness
+  {:collaboration-mode :panel
+   :panel-selection-fns [(panels/random-members 5)]
+   :credit-policy :weighted
+   :credit-weights [0.4 0.3 0.15 0.1 0.05]})
+```
+
+Top-two mean averages the two highest focal scores, using the sole score during
+singleton bootstrap. Weighted credit sorts scores descending (not partner IDs),
+then weights them. Weights must be a non-empty finite, non-negative sequence
+whose first weight is positive, so singleton encounters are defined. A shorter
+encounter list truncates the weight vector and renormalizes its retained weights;
+more encounters than weights is an error. Retained weights must have a finite positive
+sum. Non-finite scores or resulting credit are errors. Negative scores are valid.
+`:credit-weights` is required for `:weighted` and rejected for other policies.
+Scheduling and credit are independent. For example, balanced pairing can use
+`{:collaboration-mode :balanced :opponents 5 :credit-policy :top-two-mean}`;
+Cartesian mode can use `{:collaboration-mode :cartesian :credit-policy :maximum}`.
+Balanced scheduling requires at least five individuals per species in that example.
+Omitting `:credit-policy` selects mean in every mode. The earlier unreleased
+`:panel-credit` / `:panel-credit-weights` option names are rejected; use the general
+names above.
+
+A custom `:credit-policy` function receives:
+
+```clojure
+{:generation 0
+ :collaboration-mode :balanced
+ :species-id :a
+ :individual focal-individual
+ :collaborator-species-id :b
+ :encounters focal-directional-records}
+```
+
+Encounter records contain participant GUIDs, genomes, focal/collaborator identities,
+and `:score`, in scheduler order. Balanced and Cartesian pairs contribute once to
+each participant's context. Panel mode supplies only the scheduled focal encounters:
+being another individual's reference never adds credit. Panel callbacks additionally
+receive `:panel`, aligned with encounter order. Balanced partner sets can differ
+between individuals, while panel partners are shared within a species/generation;
+a credit policy does not change these scheduling rules.
+
+Return one finite number. The callback runs once per individual,
+after pair evaluation and before history, selectors, monitors, and reproduction.
+Keep it pure and deterministic: invocation order across species is unspecified.
+Failures include generation, species ID, and focal GUID in exception data.
+
+Public `nature.credit/mean`, `maximum`, and `top-two-mean` consume that context;
+`(nature.credit/weighted weights)` returns a compatible callback. For example:
+
+```clojure
+(require '[nature.credit :as credit])
+;; Consumer-defined blend, without extra collaboration evaluations:
+{:collaboration-mode :panel
+ :credit-policy (fn [context]
+                 (+ (* 0.5 (credit/mean context))
+                    (* 0.5 (credit/maximum context))))}
+```
+
+Assigned `:fitness-score` drives parent sampling, elite carry-over, fitness-based
+panel selectors (including diverse-strong's candidate pool), and fitness history.
+In panel mode, `:average-score` and `:maximum-score` remain raw encounter
+statistics, so generalist,
+specialist, and their corresponding historical selectors retain their meanings.
+Existing positive-shifted fitness-weighted parent sampling is unchanged. Final
+`:final-ratio` shortlisting also uses assigned credit; the subsequent Cartesian
+`:final-evaluation-fn` is unchanged. Use ratio 1.0 to include all terminal individuals.
+
+Monitor/result state includes `:credit-policy` and, for weighted credit,
+`:credit-weights`. Custom callbacks report `:custom`; the consumer must record
+its implementation/version/configuration for reproducibility. Omitting the policy
+preserves mean scoring and introduces no random draws. Population-level ranking,
+Pareto selection, and even-distributed sorting are not scalar-credit policies and
+are not implemented by this interface.
+
 
 ### Final evaluation and results
 

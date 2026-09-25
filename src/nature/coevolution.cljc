@@ -3,6 +3,7 @@
   (:require [nature.initialization-operators :as io]
             [nature.population-presets :as pp]
             [nature.panel :as panel]
+            [nature.credit :as credit]
             [nature.panel-selectors :as panel-selectors]))
 
 (defn- fail
@@ -101,44 +102,50 @@
     (fail "Unknown collaboration mode."
           {:collaboration-mode mode :supported-modes #{:balanced :cartesian}})))
 
-(defn- average
-  [numbers]
-  (/ (reduce + numbers) (count numbers)))
-
 (defn- evaluate-populations
-  [species-a species-b population-a population-b mode opponents fitness-fn]
+  [species-a species-b population-a population-b mode opponents fitness-fn credit-fn generation]
   (let [id-a (:species-id species-a)
         id-b (:species-id species-b)
         pairs (collaboration-pairs population-a population-b mode opponents)
         collaborations
         (into []
+              (map (fn [{:keys [score] :as record}]
+                     (require-condition (panel-selectors/finite-number? score)
+                                        "The collaboration fitness function must return a finite number."
+                                        {:species-a id-a :species-b id-b :score score})
+                     record))
               (#?(:clj pmap :cljs map)
                (fn [[individual-a individual-b]]
                  (let [score (fitness-fn (:genetic-sequence individual-a)
                                          (:genetic-sequence individual-b))]
-                   (require-condition (number? score)
-                                      "The collaboration fitness function must return a number."
-                                      {:species-a id-a :species-b id-b :score score})
                    {:participants {id-a (:guid individual-a)
                                    id-b (:guid individual-b)}
                     :genomes {id-a (:genetic-sequence individual-a)
                               id-b (:genetic-sequence individual-b)}
                     :score score}))
                pairs))
-        scores (reduce (fn [index {:keys [participants score]}]
-                         (-> index
-                             (update (get participants id-a) (fnil conj []) score)
-                             (update (get participants id-b) (fnil conj []) score)))
-                       {}
-                       collaborations)
-        assign-score (fn [individual]
-                       (let [individual-scores (get scores (:guid individual))]
-                         (require-condition (seq individual-scores)
-                                            "Every individual must participate in at least one collaboration."
-                                            {:guid (:guid individual)})
-                         (assoc individual :fitness-score (average individual-scores))))]
-    {:populations {id-a (mapv assign-score population-a)
-                   id-b (mapv assign-score population-b)}
+        ;; Each pair contributes once to each participant. Index by species as
+        ;; well as GUID so partner identities cannot mix the two directions.
+        encounters (reduce
+                    (fn [index {:keys [participants] :as record}]
+                      (reduce (fn [index [id other-id]]
+                                (update index [id (get participants id)] (fnil conj [])
+                                        (assoc record
+                                               :focal-species-id id
+                                               :focal-guid (get participants id)
+                                               :collaborator-species-id other-id
+                                               :collaborator-guid (get participants other-id))))
+                              index [[id-a id-b] [id-b id-a]]))
+                    {} collaborations)
+        assign-score (fn [id other-id individual]
+                       (assoc individual :fitness-score
+                              (credit/assign credit-fn
+                                {:generation generation :collaboration-mode mode
+                                 :species-id id :individual individual
+                                 :collaborator-species-id other-id
+                                 :encounters (get encounters [id (:guid individual)])})))]
+    {:populations {id-a (mapv #(assign-score id-a id-b %) population-a)
+                   id-b (mapv #(assign-score id-b id-a %) population-b)}
      :collaborations collaborations}))
 
 (defn- selection-weights
@@ -242,7 +249,7 @@
      :final-collaborations results}))
 
 (defn- evolve-panel
-  [species-a species-b generations fitness-fn options]
+  [species-a species-b generations fitness-fn options {:keys [credit-fn metadata]}]
   (let [selection-fns (panel/validate-selectors
                        (get options :panel-selection-fns [(panel-selectors/random-members 1)]))
         id-a (:species-id species-a)
@@ -256,8 +263,9 @@
            history {}]
       (let [terminal? (>= generation generations)
             evaluated (merge {:generation generation :collaboration-mode :panel}
-                             panel-state
-                             (panel/evaluate id-a id-b populations (:panels panel-state) fitness-fn))
+                             panel-state metadata
+                             (panel/evaluate id-a id-b populations (:panels panel-state)
+                                             fitness-fn credit-fn generation))
             history (panel/update-history history evaluated)
             evaluated (assoc evaluated :panel-history history)
             next-state (when-not terminal? (panel/next-panels selection-fns species evaluated))
@@ -306,22 +314,24 @@
     (require-condition (contains? #{:balanced :cartesian :panel} mode)
                        "Unknown collaboration mode."
                        {:collaboration-mode mode :supported-modes #{:balanced :cartesian :panel}})
-    (if (= mode :panel)
-      (evolve-panel species-a species-b generations collaboration-fitness-fn options)
-      (loop [generation 0
-             population-a (initialize-population species-a)
-             population-b (initialize-population species-b)]
-        (let [{:keys [populations collaborations]}
-              (evaluate-populations species-a species-b population-a population-b
-                                    mode opponents collaboration-fitness-fn)
-              state {:generation generation
-                     :populations populations
-                     :collaborations collaborations}]
-          (monitor! monitors state)
-          (if (>= generation generations)
-            (merge state
-                   (final-collaborations species-a species-b populations final-ratio
-                                         final-evaluation-fn collaboration-fitness-fn))
-            (recur (inc generation)
-                   (advance-population (get populations id-a) species-a)
-                   (advance-population (get populations id-b) species-b))))))))
+    (let [{:keys [credit-fn metadata] :as credit-config} (credit/resolve-options options)]
+      (if (= mode :panel)
+        (evolve-panel species-a species-b generations collaboration-fitness-fn options credit-config)
+        (loop [generation 0
+               population-a (initialize-population species-a)
+               population-b (initialize-population species-b)]
+          (let [{:keys [populations collaborations]}
+                (evaluate-populations species-a species-b population-a population-b
+                                      mode opponents collaboration-fitness-fn credit-fn generation)
+                state (merge metadata
+                             {:generation generation :collaboration-mode mode
+                              :populations populations
+                              :collaborations collaborations})]
+            (monitor! monitors state)
+            (if (>= generation generations)
+              (merge state
+                     (final-collaborations species-a species-b populations final-ratio
+                                           final-evaluation-fn collaboration-fitness-fn))
+              (recur (inc generation)
+                     (advance-population (get populations id-a) species-a)
+                     (advance-population (get populations id-b) species-b)))))))))
