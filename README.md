@@ -377,13 +377,96 @@ Pareto selection, and even-distributed sorting are not scalar-credit policies an
 are not implemented by this interface.
 
 
+### Oracle evaluation
+
+Version 1.4.0 adds `:collaboration-mode :oracle` for evolving both populations in
+one run against fixed, caller-owned evaluation references. Each individual is
+evaluated independently through its species callback, including generation zero
+and carried elites in later generations. For population sizes N and M, a
+generation makes N+M oracle calls. There is no random reference bootstrap,
+reference selection, or reference reproduction. On the JVM the calls use
+`pmap`, so callbacks must be thread-safe; ClojureScript evaluates sequentially.
+
+```clojure
+(nature/evolve-cooperatively species-a species-b generations nil
+  {:collaboration-mode :oracle
+   :oracle-fitness-fns {:rules score-rules-with-oracle
+                        :parameters score-parameters-with-oracle}
+   :oracle-reference-metadata
+   {:rules {:reference-id "rules-reference-v1" :policy :best-favorable}
+    :parameters {:reference-id "parameters-reference-v1" :policy :first-favorable}}
+   :final-ratio 1.0
+   :final-evaluation-fn evaluate-ordinary-pair
+   :monitors [record-state]})
+```
+
+Both maps must contain exactly the configured species IDs. Each oracle callback
+accepts one genome and returns one finite numeric score; negative scores are
+valid. Reference metadata requires a non-blank string `:reference-id` and may
+include caller-defined, serializable configuration. It is recorded unchanged
+throughout the run, separately from live genomes. Callbacks should close over
+the immutable reference/data context identified by that metadata. Nature owns
+neither a trading backtester nor price/turning-point definitions, and never
+invokes or changes the reference itself. Changing the effective reference inside
+a callback is the caller's responsibility and would invalidate fixed-reference
+comparability.
+
+The positional pair fitness argument may be `nil` in oracle mode. An explicit
+`:final-evaluation-fn` is required: it evaluates the Cartesian product of the
+ordinary shortlisted genomes after evolution and is never replaced by an oracle
+callback. Its rich return value remains unchanged under `:result`. To include all
+terminal individuals in ordinary pair selection, use `:final-ratio 1.0`.
+`:opponents` and `:panel-selection-fns` are rejected in oracle mode; oracle
+options are rejected in other modes to prevent silent misconfiguration.
+
+All credit policies remain supported. With one encounter the four built-ins
+assign the oracle score unchanged (weighted credit renormalizes its first
+weight). A custom credit callback receives `:generation`, `:collaboration-mode
+:oracle`, `:species-id`, `:individual`, `:oracle-reference`, and a singleton
+`:encounters` vector. There is no live collaborator identity or panel. Assigned
+credit drives reproduction and final shortlisting as in the other modes.
+
+Monitor/result state retains the normal `:generation`, `:populations`,
+`:collaborations`, and credit metadata, and adds:
+
+```clojure
+{:collaboration-mode :oracle
+ :oracle-reference-metadata {:rules {:reference-id "rules-reference-v1" ...}
+                             :parameters {:reference-id "parameters-reference-v1" ...}}
+ :oracle-statistics {:rules {guid {:fitness-score assigned-credit
+                                 :average-score raw-oracle-score
+                                 :maximum-score raw-oracle-score
+                                 :encounter-count 1}} ...}
+ :oracle-evaluation-count (+ N M)
+ :directional-collaboration-count (+ N M)
+ :unique-collaboration-evaluation-count (+ N M)}
+```
+
+Each collaboration is a directional oracle encounter with one live participant:
+
+```clojure
+{:participants {:rules focal-guid}
+ :genomes {:rules focal-genome}
+ :focal-species-id :rules :focal-guid focal-guid
+ :reference-kind :oracle :reference-id "rules-reference-v1"
+ :score raw-oracle-score}
+```
+
+Do not expand these into two-species pair credit or interpret a reference ID as
+a live GUID. Oracle state has no `:panels` or `:panel-history`. Generation counts
+exclude final/reporting pair evaluations. Callback failures carry generation,
+species ID, focal GUID, and reference ID in exception data. Oracle mode reuses
+the existing independent reproduction, GUID/lineage, elitism, insertion, and
+monitor lifecycle without changing ordinary panel source validation.
+
 ### Final evaluation and results
 
 `:final-ratio` defaults to `1.0` and must be in `(0, 1]`. Nature ranks each final
 population by contextual fitness, keeps `ceil(population-size * final-ratio)`,
 and enumerates their Cartesian product. If supplied, the final evaluator is
 called once per final pair; otherwise the collaboration fitness function is
-used. Evaluator return values are stored unchanged under `:result`.
+used. Oracle mode requires the explicit final evaluator. Evaluator return values
+are stored unchanged under `:result`.
 
 The return value is:
 

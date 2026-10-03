@@ -1,6 +1,6 @@
 {
   "name": "nature",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "description": "A simple genetic algorithms library for Clojure(Script)",
   "main": "index.js",
   "directories": {

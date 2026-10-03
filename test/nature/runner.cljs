@@ -4,6 +4,7 @@
             [nature.coevolution-test]
             [nature.panel-test]
             [nature.credit-test]
+            [nature.oracle-test]
             [nature.panel-selectors-test]
             [nature.fitness-functions-test]
             [nature.genetic-operators-test]
@@ -16,6 +17,7 @@
            'nature.coevolution-test
            'nature.panel-test
            'nature.credit-test
+           'nature.oracle-test
            'nature.panel-selectors-test
            'nature.fitness-functions-test
            'nature.genetic-operators-test

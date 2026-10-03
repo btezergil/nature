@@ -1,6 +1,7 @@
 (ns nature.spec
   "Common specs/api checks for core nature functions"
   (:require [clojure.spec.alpha :as s]
+            [clojure.string :as str]
             [nature.panel-selectors :as panel-selectors]))
 
 (defn not-empty?
@@ -63,7 +64,7 @@
   (s/keys :req-un [::participants ::result]))
 (s/def ::final-collaborations
   (s/coll-of ::final-collaboration :kind vector?))
-(s/def ::collaboration-mode #{:balanced :cartesian :panel})
+(s/def ::collaboration-mode #{:balanced :cartesian :panel :oracle})
 (s/def ::panel-reference
   (s/keys :req-un [::guid ::genetic-sequence]))
 (s/def ::panel
@@ -114,11 +115,46 @@
    #(= (:directional-collaboration-count %) (count (:collaborations %)))
    #(<= (:unique-collaboration-evaluation-count %) (:directional-collaboration-count %))))
 
+(s/def ::reference-id (s/and string? #(not (str/blank? %))))
+(s/def ::reference-kind #{:oracle})
+(s/def ::oracle-reference (s/keys :req-un [::reference-id]))
+(s/def ::oracle-reference-metadata
+  (s/map-of ::species-id ::oracle-reference :min-count 2 :max-count 2))
+(s/def ::oracle-statistics ::panel-statistics)
+(s/def ::oracle-evaluation-count nat-int?)
+(s/def ::oracle-collaboration
+  (s/and ::collaboration
+         (s/keys :req-un [::focal-species-id ::focal-guid ::reference-id ::reference-kind])
+         #(and (= {(:focal-species-id %) (:focal-guid %)} (:participants %))
+               (= #{(:focal-species-id %)} (set (keys (:genomes %))))
+               (panel-selectors/finite-number? (:score %))
+               (not-any? (partial contains? %) [:collaborator-guid :collaborator-species-id]))))
+(s/def ::oracle-state
+  (s/and
+   (s/keys :req-un [::oracle-reference-metadata ::oracle-statistics
+                    ::oracle-evaluation-count ::directional-collaboration-count
+                    ::unique-collaboration-evaluation-count])
+   #(= (set (keys (:populations %))) (set (keys (:oracle-reference-metadata %)))
+        (set (keys (:oracle-statistics %))))
+   #(every? (partial s/valid? ::oracle-collaboration) (:collaborations %))
+   #(= (:oracle-evaluation-count %) (:directional-collaboration-count %)
+        (:unique-collaboration-evaluation-count %) (count (:collaborations %))
+        (reduce + (map count (vals (:populations %)))))
+   #(= (set (for [[id population] (:populations %) individual population]
+               [id (:guid individual)]))
+        (set (map (juxt :focal-species-id :focal-guid) (:collaborations %))))
+   #(every? (fn [row]
+              (= (:reference-id row)
+                 (get-in % [:oracle-reference-metadata (:focal-species-id row) :reference-id])))
+            (:collaborations %))))
+
 (defn- valid-mode-state? [state]
   (and (or (not (contains? state :collaboration-mode))
            (s/valid? ::collaboration-mode (:collaboration-mode state)))
-       (or (not= :panel (:collaboration-mode state))
-           (s/valid? ::panel-state state))))
+       (case (:collaboration-mode state)
+         :panel (s/valid? ::panel-state state)
+         :oracle (s/valid? ::oracle-state state)
+         true)))
 
 (s/def ::coevolution-state
   (s/and (s/keys :req-un [::generation ::populations ::collaborations])

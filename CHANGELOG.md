@@ -1,4 +1,11 @@
-## v1.3.0 / Unreleased
+## v1.4.0 / Unreleased
+
+* **Add** - Oracle collaboration mode with independent species fitness callbacks and fixed reference metadata, available from generation zero without reference reproduction
+* **Add** - Directional oracle encounters, raw/assigned score statistics, evaluation counts, and contextual finite-score validation
+* **Add** - Synchronized two-population evolution with an explicit ordinary final Cartesian evaluator; existing scheduling and credit modes remain available
+* **Add** - Oracle API documentation, specs, and Clojure/ClojureScript regression tests
+
+## v1.3.0
 
 * **Add** - Configurable collaboration credit across balanced, Cartesian, and panel modes with mean (default), maximum, top-two mean, weighted sorted scores, and custom scalar callbacks
 * **Add** - Credit policy metadata, finite-value validation, and explicit short-panel weight normalization
