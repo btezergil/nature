@@ -102,7 +102,7 @@
   accept and return one genome. `collaboration-fitness-fn` accepts one genome
   from each species (in argument order) and returns a finite numeric score.
 
-  Options are `:collaboration-mode` (`:balanced`, the default, `:cartesian`, or `:panel`),
+  Options are `:collaboration-mode` (`:balanced`, the default, `:cartesian`, `:panel`, or `:oracle`),
   `:opponents` (K for balanced scheduling, default 1), `:final-ratio` (default
   1.0), `:final-evaluation-fn`, and `:monitors`. Final evaluators accept the two
   genomes and may return any value. Each monitor accepts the complete state map.
@@ -115,7 +115,16 @@
   when omitted to one random member. Generation zero uses random bootstrap
   panels; selectors use each completed scored population and bounded historical
   champions to build the next panels.
-  See nature.panel-selectors for selector functions and README for context keys."
+  See nature.panel-selectors for selector functions and README for context keys.
+
+  Oracle mode scores each species independently through :oracle-fitness-fns,
+  a species-ID-to-genome-to-finite-score function map. :oracle-reference-metadata
+  maps each species ID to a fixed metadata map with a non-blank string :reference-id.
+  These references never reproduce. The pair fitness argument may be nil; an
+  explicit :final-evaluation-fn is required for final ordinary Cartesian pairs.
+  Oracle callbacks own all domain-specific evaluation and must be thread-safe
+  on the JVM. Monitor state includes directional oracle encounters, references,
+  :oracle-statistics, and :oracle-evaluation-count."
   ([species-a species-b generations collaboration-fitness-fn]
    (evolve-cooperatively species-a species-b generations collaboration-fitness-fn {}))
   ([species-a species-b generations collaboration-fitness-fn options]

@@ -3,6 +3,7 @@
   (:require [nature.initialization-operators :as io]
             [nature.population-presets :as pp]
             [nature.panel :as panel]
+            [nature.oracle :as oracle]
             [nature.credit :as credit]
             [nature.panel-selectors :as panel-selectors]))
 
@@ -282,14 +283,32 @@
                   id-b (advance-population (get-in state [:populations id-b]) species-b)}
                  next-state history))))))
 
+(defn- evolve-oracle
+  [species-a species-b generations options {:keys [credit-fn metadata]}]
+  (let [id-a (:species-id species-a)
+        id-b (:species-id species-b)
+        _ (oracle/validate-options [id-a id-b] options)]
+    (loop [generation 0
+           populations {id-a (initialize-population species-a)
+                        id-b (initialize-population species-b)}]
+      (let [evaluated (oracle/evaluate populations (:oracle-fitness-fns options)
+                                       (:oracle-reference-metadata options) credit-fn generation)
+            state (merge {:generation generation :collaboration-mode :oracle}
+                         metadata evaluated)]
+        (monitor! (:monitors options) state)
+        (if (>= generation generations)
+          (merge state (final-collaborations species-a species-b (:populations state)
+                                            (get options :final-ratio 1.0)
+                                            (:final-evaluation-fn options) nil))
+          (recur (inc generation)
+                 {id-a (advance-population (get-in state [:populations id-a]) species-a)
+                  id-b (advance-population (get-in state [:populations id-b]) species-b)}))))))
+
 (defn evolve
   [species-a species-b generations collaboration-fitness-fn options]
   (require-condition (and (int? generations) (not (neg? generations)))
                      "The generation count must be a non-negative integer."
                      {:generations generations})
-  (require-condition (fn? collaboration-fitness-fn)
-                     "The collaboration fitness function must be a function."
-                     {})
   (let [species-a (normalize-species species-a)
         species-b (normalize-species species-b)
         id-a (:species-id species-a)
@@ -299,6 +318,11 @@
         final-ratio (get options :final-ratio 1.0)
         final-evaluation-fn (:final-evaluation-fn options)
         monitors (or (:monitors options) [])]
+    (require-condition (if (= mode :oracle)
+                         (or (nil? collaboration-fitness-fn) (fn? collaboration-fitness-fn))
+                         (fn? collaboration-fitness-fn))
+                       "The collaboration fitness function must be a function (or nil in oracle mode)."
+                       {})
     (require-condition (not= id-a id-b)
                        "Cooperating species must have distinct :species-id values."
                        {:species-id id-a})
@@ -311,12 +335,17 @@
     (require-condition (and (coll? monitors) (every? fn? monitors))
                        ":monitors must be a collection of functions."
                        {})
-    (require-condition (contains? #{:balanced :cartesian :panel} mode)
+    (require-condition (contains? #{:balanced :cartesian :panel :oracle} mode)
                        "Unknown collaboration mode."
-                       {:collaboration-mode mode :supported-modes #{:balanced :cartesian :panel}})
+                       {:collaboration-mode mode :supported-modes #{:balanced :cartesian :panel :oracle}})
+    (when (not= mode :oracle)
+      (require-condition (not-any? #(contains? options %)
+                                  [:oracle-fitness-fns :oracle-reference-metadata])
+                         "Oracle options require :collaboration-mode :oracle." {}))
     (let [{:keys [credit-fn metadata] :as credit-config} (credit/resolve-options options)]
-      (if (= mode :panel)
-        (evolve-panel species-a species-b generations collaboration-fitness-fn options credit-config)
+      (case mode
+        :oracle (evolve-oracle species-a species-b generations options credit-config)
+        :panel (evolve-panel species-a species-b generations collaboration-fitness-fn options credit-config)
         (loop [generation 0
                population-a (initialize-population species-a)
                population-b (initialize-population species-b)]
