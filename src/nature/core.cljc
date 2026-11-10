@@ -122,6 +122,16 @@
   maps each species ID to a fixed metadata map with a non-blank string :reference-id.
   These references never reproduce. The pair fitness argument may be nil; an
   explicit :final-evaluation-fn is required for final ordinary Cartesian pairs.
+  With :final-evaluation? false, final Cartesian evaluation is skipped and its
+  callback is optional; full scored populations and ranked solutions still return.
+
+  :initial-populations optionally supplies the complete species-ID-to-population
+  map instead of generating new populations. Identity, lineage, and age survive;
+  supplied fitness is cleared before generation zero is evaluated using the new
+  callbacks. Panels and historical scores start fresh. Each call performs the
+  requested additional reproduction steps with local generations zero through G.
+  This continues populations in a new context, not saved RNG or monitor state.
+
   Oracle callbacks own all domain-specific evaluation and must be thread-safe
   on the JVM. Monitor state includes directional oracle encounters, references,
   :oracle-statistics, and :oracle-evaluation-count."
@@ -129,3 +139,15 @@
    (evolve-cooperatively species-a species-b generations collaboration-fitness-fn {}))
   ([species-a species-b generations collaboration-fitness-fn options]
    (coevolution/evolve species-a species-b generations collaboration-fitness-fn options)))
+
+(defn refresh-cooperative-populations
+  "Replace explicit counts of the lowest-scored members in evaluated populations.
+  Species configurations and populations have the same shape as coevolution.
+  replacement-counts must map both species IDs to counts in [0, population-size].
+  Ties preserve source order; zero replacement preserves population order.
+  Survivors keep identity, lineage, and age. New members have fresh GUIDs,
+  initializer parents, and age zero. All returned fitness is nil; pass the result
+  as :initial-populations to re-evaluate before any selection or reproduction.
+  This boundary refresh is independent of each species' per-generation :insert-new."
+  [species-a species-b populations replacement-counts]
+  (coevolution/refresh-populations species-a species-b populations replacement-counts))

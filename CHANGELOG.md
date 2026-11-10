@@ -1,4 +1,11 @@
-## v1.4.0 / Unreleased
+## v1.5.0 / Unreleased
+
+* **Add** - Supplied populations for cooperative continuation with fresh generation-zero scoring in balanced, Cartesian, panel, and oracle modes
+* **Add** - Explicit per-species population refresh counts, stable fitness ranking, preserved survivor identity, fresh newcomer lineage, and cleared fitness
+* **Add** - Optional skipped final Cartesian reporting while retaining scored populations, ranked solutions, and explicit skip status
+* **Add** - Continuation API documentation and Clojure/ClojureScript regressions for new-context selection, panel history reset, validation, and boundary refresh
+
+## v1.4.0
 
 * **Add** - Oracle collaboration mode with independent species fitness callbacks and fixed reference metadata, available from generation zero without reference reproduction
 * **Add** - Directional oracle encounters, raw/assigned score statistics, evaluation counts, and contextual finite-score validation

@@ -180,6 +180,81 @@ is cleared and recomputed in every generation, including for elites. On the JVM,
 scheduled collaboration fitness calls are evaluated in parallel with `pmap`;
 ClojureScript evaluates them sequentially.
 
+### Continuing populations in a new fitness context
+
+Version 1.5.0 adds `:initial-populations` to `evolve-cooperatively` in balanced,
+Cartesian, panel, and oracle modes. Supply the complete population map from a
+previous result to continue with new fitness callbacks:
+
+```clojure
+(nature/evolve-cooperatively
+ species-a species-b 50 new-context-score
+ {:initial-populations (:populations previous-result)
+  :final-evaluation? false})
+```
+
+Both species IDs and population sizes must match their configurations. Members
+need distinct string GUIDs within each species, non-empty genomes, non-negative
+integer ages, and non-empty parent collections. Nature retains their identity,
+genome, age, and lineage, but clears supplied fitness before evaluating generation
+zero. Missing or nonfinite old scores are ignored. There is no initialization or
+initial-population retry for supplied populations. Each call performs the requested
+number of **additional reproduction steps**; monitors observe local generations
+0 through G. Re-evaluation alone does not increment ages. Caller-owned stage IDs
+and generation offsets can distinguish consecutive runs.
+
+Each call starts a new evaluation context. Panel mode bootstraps new panels and
+history; it does not reuse previous champions, encounters, or statistics. Oracle
+mode uses the newly supplied `:oracle-fitness-fns` and
+`:oracle-reference-metadata`. Callers must rebuild any context-dependent callback
+state. Population continuation does not restore RNG or monitor state and does not
+promise a bit-identical interrupted-run resume. Existing calls without
+`:initial-populations` initialize and evolve as before.
+
+`refresh-cooperative-populations` replaces explicit counts of the lowest-scored
+members in each species. For example, `{:long 20 :short 20}` introduces 20 new
+members per 100-member population. Counts must include exactly both species and
+be integers from zero through that species' size. The helper validates the entire
+request before generating members, ranks by finite assigned fitness descending,
+and breaks ties by original population order. Survivors keep their identity,
+lineage, and age. New members have fresh GUIDs, initializer parents, and age zero.
+Zero replacement preserves the original order; full replacement is supported.
+Every returned fitness is nil, so pass the result to `evolve-cooperatively` for
+evaluation before reproduction. Boundary refresh is independent of per-generation
+`:insert-new`, which remains unchanged.
+
+To rank survivors using a new oracle context, first re-evaluate the carried
+population without reproduction, then refresh, then train:
+
+```clojure
+;; next-oracle-options supplies the new context's callbacks and reference metadata.
+(def stage-options (assoc next-oracle-options :final-evaluation? false))
+(def rescored
+  (nature/evolve-cooperatively
+   long-species short-species 0 nil
+   (assoc stage-options :initial-populations (:populations previous-result))))
+(def refreshed
+  (nature/refresh-cooperative-populations
+   long-species short-species (:populations rescored) {:long 20 :short 20}))
+(def next-result
+  (nature/evolve-cooperatively
+   long-species short-species 50 nil
+   (assoc stage-options :initial-populations refreshed)))
+```
+
+The refresh helper requires already-evaluated populations; the caller establishes
+which context their scores describe. The second call re-evaluates all refreshed
+members, including survivors, because collaborator composition may have changed.
+The library has no dataset, calendar, window, or percentage policy.
+
+`:final-evaluation?` defaults to true. Setting it to false skips only final
+Cartesian reporting; evolution, monitors, full scored `:populations`, and ranked
+`:solutions` remain available. The result has `:final-collaborations []` and
+`:final-evaluation-status :skipped`. Oracle mode then permits an omitted
+`:final-evaluation-fn`. With reporting enabled, its existing explicit callback
+requirement and Cartesian behavior remain unchanged. Set reporting back to true
+and supply the evaluator when ordinary final partnerships are needed.
+
 ### Shared panel collaboration
 
 Version 1.2.0 adds `:panel` to the existing `:collaboration-mode` option:
@@ -411,8 +486,9 @@ invokes or changes the reference itself. Changing the effective reference inside
 a callback is the caller's responsibility and would invalidate fixed-reference
 comparability.
 
-The positional pair fitness argument may be `nil` in oracle mode. An explicit
-`:final-evaluation-fn` is required: it evaluates the Cartesian product of the
+The positional pair fitness argument may be `nil` in oracle mode. With final
+reporting enabled, an explicit `:final-evaluation-fn` is required: it evaluates
+the Cartesian product of the
 ordinary shortlisted genomes after evolution and is never replaced by an oracle
 callback. Its rich return value remains unchanged under `:result`. To include all
 terminal individuals in ordinary pair selection, use `:final-ratio 1.0`.
@@ -463,9 +539,9 @@ monitor lifecycle without changing ordinary panel source validation.
 
 `:final-ratio` defaults to `1.0` and must be in `(0, 1]`. Nature ranks each final
 population by contextual fitness, keeps `ceil(population-size * final-ratio)`,
-and enumerates their Cartesian product. If supplied, the final evaluator is
+and, by default, enumerates their Cartesian product. If supplied, the final evaluator is
 called once per final pair; otherwise the collaboration fitness function is
-used. Oracle mode requires the explicit final evaluator. Evaluator return values
+used. Oracle mode requires the explicit final evaluator when reporting is enabled. Evaluator return values
 are stored unchanged under `:result`.
 
 The return value is:

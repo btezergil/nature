@@ -5,6 +5,7 @@
             [nature.panel-test]
             [nature.credit-test]
             [nature.oracle-test]
+            [nature.continuation-test]
             [nature.panel-selectors-test]
             [nature.fitness-functions-test]
             [nature.genetic-operators-test]
@@ -18,6 +19,7 @@
            'nature.panel-test
            'nature.credit-test
            'nature.oracle-test
+           'nature.continuation-test
            'nature.panel-selectors-test
            'nature.fitness-functions-test
            'nature.genetic-operators-test

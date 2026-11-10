@@ -73,6 +73,78 @@
                                          pp/initializer-name
                                          pp/default-age))))
 
+(defn- validate-supplied-populations
+  [species populations scored?]
+  (require-condition (and (map? populations)
+                          (= (set (map :species-id species)) (set (keys populations))))
+                     "Supplied populations must contain exactly the configured species."
+                     {:species-ids (mapv :species-id species)})
+  (doseq [{:keys [species-id population-size]} species
+          :let [population (get populations species-id)]]
+    (require-condition (and (sequential? population) (= population-size (count population)))
+                       "Supplied population size must match its species configuration."
+                       {:species-id species-id :population-size population-size})
+    (doseq [individual population]
+      (require-condition (and (panel/valid-reference? individual)
+                              (seq (:guid individual))
+                              (int? (:age individual)) (not (neg? (:age individual)))
+                              (coll? (:parents individual)) (seq (:parents individual)))
+                         "Supplied individuals require a non-empty genome and GUID, non-negative integer age, and parents."
+                         {:species-id species-id :individual individual})
+      (when scored?
+        (require-condition (panel-selectors/finite-number? (:fitness-score individual))
+                           "Population refresh requires finite evaluated fitness for every individual."
+                           {:species-id species-id :guid (:guid individual)}))))
+  (panel/validate-populations populations)
+  populations)
+
+(defn- clear-population-fitness
+  [populations]
+  (into {} (map (fn [[id population]]
+                 [id (mapv #(assoc % :fitness-score nil) population)]) populations)))
+
+(defn- starting-populations
+  [species-a species-b options]
+  (if (contains? options :initial-populations)
+    (clear-population-fitness
+     (validate-supplied-populations [species-a species-b] (:initial-populations options) false))
+    {(:species-id species-a) (initialize-population species-a)
+     (:species-id species-b) (initialize-population species-b)}))
+
+(defn refresh-populations
+  "Retain the highest-scored members and replace explicit counts per species.
+  Inputs must be evaluated in the intended context. Ties retain source order.
+  All returned fitness is nil; evaluate the refreshed populations before use."
+  [species-a species-b populations replacement-counts]
+  (let [species [(normalize-species species-a) (normalize-species species-b)]
+        ids (set (map :species-id species))]
+    (require-condition (= 2 (count ids)) "Cooperating species must have distinct :species-id values." {})
+    (validate-supplied-populations species populations true)
+    (require-condition (and (map? replacement-counts) (= ids (set (keys replacement-counts))))
+                       "Replacement counts must contain exactly the configured species." {})
+    ;; Validate the entire request before invoking either generator.
+    (doseq [{:keys [species-id population-size]} species
+            :let [n (get replacement-counts species-id)]]
+      (require-condition (and (int? n) (<= 0 n population-size))
+                         "Replacement count must be an integer between zero and population size."
+                         {:species-id species-id :replacement-count n :population-size population-size}))
+    (let [refreshed
+          (into {}
+                (for [{:keys [species-id population-size genome-generator]} species
+                      :let [population (get populations species-id)
+                            n (get replacement-counts species-id)
+                            retained (if (zero? n) population
+                                         (take (- population-size n) (sort-by :fitness-score > population)))
+                            newcomers (vec (repeatedly n #(unscored-individual
+                                                           (genome-generator) pp/initializer-name pp/default-age)))
+                            old-guids (set (map :guid population))]]
+                  (do
+                    (require-condition (not-any? #(contains? old-guids (:guid %)) newcomers)
+                                       "New individuals must have fresh GUIDs." {:species-id species-id})
+                    [species-id (vec (concat retained newcomers))])))]
+      (validate-supplied-populations species refreshed false)
+      (clear-population-fitness refreshed))))
+
 (defn- collaboration-pairs
   [population-a population-b mode opponents]
   (case mode
@@ -230,7 +302,7 @@
      :cljs (long (js/Math.ceil (* population-size final-ratio)))))
 
 (defn- final-collaborations
-  [species-a species-b populations final-ratio final-evaluation-fn collaboration-fitness-fn]
+  [species-a species-b populations final-ratio final-evaluation-fn collaboration-fitness-fn final-evaluation?]
   (let [id-a (:species-id species-a)
         id-b (:species-id species-b)
         select (fn [id population-size]
@@ -239,15 +311,17 @@
         solutions-a (select id-a (:population-size species-a))
         solutions-b (select id-b (:population-size species-b))
         evaluator (or final-evaluation-fn collaboration-fitness-fn)
-        results (vec
-                 (for [individual-a solutions-a
-                       individual-b solutions-b]
-                   {:participants {id-a individual-a
-                                   id-b individual-b}
-                    :result (evaluator (:genetic-sequence individual-a)
-                                       (:genetic-sequence individual-b))}))]
-    {:solutions {id-a solutions-a id-b solutions-b}
-     :final-collaborations results}))
+        results (if final-evaluation?
+                  (vec (for [individual-a solutions-a
+                             individual-b solutions-b]
+                         {:participants {id-a individual-a
+                                         id-b individual-b}
+                          :result (evaluator (:genetic-sequence individual-a)
+                                             (:genetic-sequence individual-b))}))
+                  [])]
+    (cond-> {:solutions {id-a solutions-a id-b solutions-b}
+             :final-collaborations results}
+      (not final-evaluation?) (assoc :final-evaluation-status :skipped))))
 
 (defn- evolve-panel
   [species-a species-b generations fitness-fn options {:keys [credit-fn metadata]}]
@@ -256,8 +330,7 @@
         id-a (:species-id species-a)
         id-b (:species-id species-b)
         species {id-a species-a id-b species-b}
-        initial {id-a (initialize-population species-a)
-                 id-b (initialize-population species-b)}]
+        initial (starting-populations species-a species-b options)]
     (loop [generation 0
            populations initial
            panel-state (panel/bootstrap initial)
@@ -277,7 +350,8 @@
           (merge state
                  (final-collaborations species-a species-b (:populations state)
                                        (get options :final-ratio 1.0)
-                                       (:final-evaluation-fn options) fitness-fn))
+                                       (:final-evaluation-fn options) fitness-fn
+                                       (get options :final-evaluation? true)))
           (recur (inc generation)
                  {id-a (advance-population (get-in state [:populations id-a]) species-a)
                   id-b (advance-population (get-in state [:populations id-b]) species-b)}
@@ -289,8 +363,7 @@
         id-b (:species-id species-b)
         _ (oracle/validate-options [id-a id-b] options)]
     (loop [generation 0
-           populations {id-a (initialize-population species-a)
-                        id-b (initialize-population species-b)}]
+           populations (starting-populations species-a species-b options)]
       (let [evaluated (oracle/evaluate populations (:oracle-fitness-fns options)
                                        (:oracle-reference-metadata options) credit-fn generation)
             state (merge {:generation generation :collaboration-mode :oracle}
@@ -299,7 +372,8 @@
         (if (>= generation generations)
           (merge state (final-collaborations species-a species-b (:populations state)
                                             (get options :final-ratio 1.0)
-                                            (:final-evaluation-fn options) nil))
+                                            (:final-evaluation-fn options) nil
+                                            (get options :final-evaluation? true)))
           (recur (inc generation)
                  {id-a (advance-population (get-in state [:populations id-a]) species-a)
                   id-b (advance-population (get-in state [:populations id-b]) species-b)}))))))
@@ -316,6 +390,7 @@
         mode (get options :collaboration-mode :balanced)
         opponents (get options :opponents 1)
         final-ratio (get options :final-ratio 1.0)
+        final-evaluation? (get options :final-evaluation? true)
         final-evaluation-fn (:final-evaluation-fn options)
         monitors (or (:monitors options) [])]
     (require-condition (if (= mode :oracle)
@@ -326,6 +401,8 @@
     (require-condition (not= id-a id-b)
                        "Cooperating species must have distinct :species-id values."
                        {:species-id id-a})
+    (require-condition (boolean? final-evaluation?)
+                       ":final-evaluation? must be a boolean." {})
     (require-condition (and (number? final-ratio) (pos? final-ratio) (<= final-ratio 1))
                        ":final-ratio must be greater than zero and no greater than one."
                        {:final-ratio final-ratio})
@@ -346,21 +423,22 @@
       (case mode
         :oracle (evolve-oracle species-a species-b generations options credit-config)
         :panel (evolve-panel species-a species-b generations collaboration-fitness-fn options credit-config)
-        (loop [generation 0
-               population-a (initialize-population species-a)
-               population-b (initialize-population species-b)]
-          (let [{:keys [populations collaborations]}
-                (evaluate-populations species-a species-b population-a population-b
-                                      mode opponents collaboration-fitness-fn credit-fn generation)
-                state (merge metadata
-                             {:generation generation :collaboration-mode mode
-                              :populations populations
-                              :collaborations collaborations})]
-            (monitor! monitors state)
-            (if (>= generation generations)
-              (merge state
-                     (final-collaborations species-a species-b populations final-ratio
-                                           final-evaluation-fn collaboration-fitness-fn))
-              (recur (inc generation)
-                     (advance-population (get populations id-a) species-a)
-                     (advance-population (get populations id-b) species-b)))))))))
+        (let [initial (starting-populations species-a species-b options)]
+          (loop [generation 0
+                 population-a (get initial id-a)
+                 population-b (get initial id-b)]
+            (let [{:keys [populations collaborations]}
+                  (evaluate-populations species-a species-b population-a population-b
+                                        mode opponents collaboration-fitness-fn credit-fn generation)
+                  state (merge metadata
+                               {:generation generation :collaboration-mode mode
+                                :populations populations
+                                :collaborations collaborations})]
+              (monitor! monitors state)
+              (if (>= generation generations)
+                (merge state
+                       (final-collaborations species-a species-b populations final-ratio
+                                             final-evaluation-fn collaboration-fitness-fn final-evaluation?))
+                (recur (inc generation)
+                       (advance-population (get populations id-a) species-a)
+                       (advance-population (get populations id-b) species-b))))))))))

@@ -9,7 +9,7 @@
   (when-not condition (throw (ex-info message data))))
 
 (defn validate-options
-  "Validate species callbacks, fixed reference metadata, and final pair evaluation."
+  "Validate species callbacks, fixed references, and enabled final pair evaluation."
   [species-ids {:keys [oracle-fitness-fns oracle-reference-metadata final-evaluation-fn]
                 :as options}]
   (let [ids (set species-ids)]
@@ -25,9 +25,10 @@
                            (vals oracle-reference-metadata)))
               ":oracle-reference-metadata must provide a non-blank string :reference-id per species."
               {:species-ids ids :oracle-reference-metadata oracle-reference-metadata})
-    (require! (fn? final-evaluation-fn)
-              "Oracle mode requires an explicit :final-evaluation-fn for ordinary pairs."
-              {})
+    (when (get options :final-evaluation? true)
+      (require! (fn? final-evaluation-fn)
+                "Oracle mode requires an explicit :final-evaluation-fn for ordinary pairs."
+                {}))
     (require! (not-any? #(contains? options %) [:opponents :panel-selection-fns])
               "Oracle mode uses fixed references, not :opponents or :panel-selection-fns."
               {})

@@ -64,6 +64,7 @@
   (s/keys :req-un [::participants ::result]))
 (s/def ::final-collaborations
   (s/coll-of ::final-collaboration :kind vector?))
+(s/def ::final-evaluation-status #{:skipped})
 (s/def ::collaboration-mode #{:balanced :cartesian :panel :oracle})
 (s/def ::panel-reference
   (s/keys :req-un [::guid ::genetic-sequence]))
@@ -161,5 +162,8 @@
          valid-mode-state?))
 (s/def ::coevolution-result
   (s/and (s/keys :req-un [::generation ::populations ::collaborations
-                         ::solutions ::final-collaborations])
+                         ::solutions ::final-collaborations]
+                :opt-un [::final-evaluation-status])
+         #(or (not= :skipped (:final-evaluation-status %))
+              (empty? (:final-collaborations %)))
          valid-mode-state?))
